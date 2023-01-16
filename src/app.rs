@@ -1,14 +1,16 @@
 use std::{
     collections::HashMap,
+    ffi::OsStr,
     fs::{self, DirEntry, FileType},
     io,
-    path::{Path, PathBuf}, ffi::OsStr,
+    path::{Path, PathBuf},
 };
 
 use tui::{backend::Backend, Terminal};
 
 use crate::ui::Ui;
 
+#[derive(Debug,Clone)]
 enum AppActions {
     MoveDown,
     MoveUp,
@@ -20,6 +22,8 @@ enum AppActions {
     CopyFiles,
     CutFiles,
     PasteFiles,
+    OpenCommandMode,
+    DeleteFile,
 }
 
 enum YankMode {
@@ -49,24 +53,27 @@ pub struct App<'a> {
     key_chord: Vec<char>,
     bindings: HashMap<Vec<char>, AppActions>,
     // ---
-
     yank_reg: Box<PathBuf>,
     yank_mode: Option<YankMode>,
+
+    command_mode: bool,
+    command_buffer: String,
 }
 
 impl App<'_> {
     pub fn new(title: String, current_dir: &Path) -> App {
         let mut bindings = HashMap::new();
-        bindings.insert(str_to_char_arr("j"),  AppActions::MoveDown);
-        bindings.insert(str_to_char_arr("k"),  AppActions::MoveUp);
-        bindings.insert(str_to_char_arr("h"),  AppActions::MoveUpDir);
-        bindings.insert(str_to_char_arr("l"),  AppActions::EnterDir);
-        bindings.insert(str_to_char_arr("q"),  AppActions::Quit);
+        bindings.insert(str_to_char_arr("j"), AppActions::MoveDown);
+        bindings.insert(str_to_char_arr("k"), AppActions::MoveUp);
+        bindings.insert(str_to_char_arr("h"), AppActions::MoveUpDir);
+        bindings.insert(str_to_char_arr("l"), AppActions::EnterDir);
+        bindings.insert(str_to_char_arr("q"), AppActions::Quit);
         bindings.insert(str_to_char_arr("gg"), AppActions::MoveToTop);
-        bindings.insert(str_to_char_arr("G"),  AppActions::MoveToBottom);
+        bindings.insert(str_to_char_arr("G"), AppActions::MoveToBottom);
         bindings.insert(str_to_char_arr("yy"), AppActions::CopyFiles);
         bindings.insert(str_to_char_arr("dd"), AppActions::CutFiles);
-        bindings.insert(str_to_char_arr("p"),  AppActions::PasteFiles);
+        bindings.insert(str_to_char_arr("p"), AppActions::PasteFiles);
+        bindings.insert(str_to_char_arr(":"), AppActions::OpenCommandMode);
 
         App {
             title,
@@ -92,6 +99,8 @@ impl App<'_> {
             bindings,
             yank_reg: Box::<PathBuf>::new("/tmp/rust_fm_yank.txt".into()),
             yank_mode: None,
+            command_mode: false,
+            command_buffer: String::from(""),
         }
     }
 
@@ -101,48 +110,19 @@ impl App<'_> {
         self.key_chord.push(c);
         let mut matched = true;
 
-        let selected_paths = self.get_selected_entries().iter().map(|d| d.path()).collect();
 
-        match self.bindings.get(&self.key_chord) {
-            Some(action) => match action {
-                AppActions::MoveDown => self.ui.scroll(1, self.dir_contents.len() as i32),
-                AppActions::MoveUp => self.ui.scroll(-1, self.dir_contents.len() as i32),
-                AppActions::MoveUpDir => {
-                    self.move_up_dir();
-                    self.ui
-                        .scroll_abs(self.find_name(self.ui.last_name.clone()).unwrap_or(0), self.dir_contents.len() as i32);
-                    self.ui.last_name = self
-                        .current_dir
-                        .file_name()
-                        .unwrap_or(OsStr::new(""))
-                        .to_str()
-                        .unwrap()
-                        .to_string();
-                }
-                AppActions::EnterDir => {
-                    if self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize]
-                        .file_type()
-                        .unwrap()
-                        .is_dir()
-                    {
-                        let path =
-                            &self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize];
-                        self.ui.last_name =
-                            path.file_name().to_owned().to_str().unwrap().to_string();
-                        self.enter_dir(&path.path());
-                        self.ui.scroll_abs(0, self.dir_contents.len() as i32);
-                    }
-                }
-                AppActions::Quit => {
-                    self.should_quit = true;
-                },
-                AppActions::MoveToTop => self.ui.scroll_abs(0, self.dir_contents.len() as i32),
-                AppActions::MoveToBottom => self.ui.scroll_abs(self.dir_contents.len() as i32 - 1, self.dir_contents.len() as i32),
-                AppActions::CopyFiles => self.copy_files(selected_paths),
-                AppActions::CutFiles => self.cut_files(selected_paths),
-                AppActions::PasteFiles => self.paste_yanked_files(),
+
+        if self.command_mode {
+            self.command_buffer.push(c);
+        } else {
+        // Figure out some way to do this shit with borrowing
+        let maybe_action = self.get_binding();
+        match maybe_action {
+            Some(action) => {
+                self.handle_action(action);
             },
             None => matched = false,
+        }
         }
 
         if matched {
@@ -162,6 +142,13 @@ impl App<'_> {
             if !starting {
                 self.key_chord.clear();
             }
+        }
+    }
+
+    fn get_binding(&mut self) -> Option<AppActions> {
+        match self.bindings.get(&self.key_chord) {
+            Some(a) => Some(a.clone()),
+            None => None,
         }
     }
 
@@ -186,6 +173,8 @@ impl App<'_> {
             self.current_dir.to_str().unwrap(),
             &self.bookmarks,
             &self.dir_contents,
+            self.command_mode,
+            &self.command_buffer,
         )
     }
 
@@ -208,6 +197,12 @@ impl App<'_> {
         fs::write(self.yank_reg.as_path(), output).unwrap();
 
         self.yank_mode = Some(YankMode::Copying);
+    }
+
+    fn delete_files(&self, paths: Vec<PathBuf>) {
+        // TODO: Implement for files and directories
+        for p in paths {
+        }
     }
 
     fn cut_files(&mut self, paths: Vec<PathBuf>) {
@@ -236,6 +231,7 @@ impl App<'_> {
                 let p = Path::new(l);
                 let dest = dest_dir.join(p.file_name().unwrap());
 
+                // TODO: Doesn't copy directories
                 let copy_success = fs::copy(&p, dest);
 
                 if let Ok(_) = copy_success {
@@ -243,7 +239,6 @@ impl App<'_> {
                         fs::remove_file(&p).unwrap();
                     }
                 }
-
             }
         }
 
@@ -251,8 +246,82 @@ impl App<'_> {
     }
 
     fn update_dir_contents(&mut self) {
-        self.dir_contents = fs::read_dir(self.current_dir.as_path()).unwrap().map(|x| x.unwrap()).collect();
+        self.dir_contents = fs::read_dir(self.current_dir.as_path())
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
     }
+
+    fn handle_action(&mut self, action: AppActions) {
+        let selected_paths = self
+            .get_selected_entries()
+            .iter()
+            .map(|d| d.path())
+            .collect();
+            match action {
+                    AppActions::MoveDown => self.ui.scroll(1, self.dir_contents.len() as i32),
+                    AppActions::MoveUp => self.ui.scroll(-1, self.dir_contents.len() as i32),
+                    AppActions::MoveUpDir => {
+                        self.move_up_dir();
+                        self.ui.scroll_abs(
+                            self.find_name(self.ui.last_name.clone()).unwrap_or(0),
+                            self.dir_contents.len() as i32,
+                        );
+                        self.ui.last_name = self
+                            .current_dir
+                            .file_name()
+                            .unwrap_or(OsStr::new(""))
+                            .to_str()
+                            .unwrap()
+                            .to_string();
+                    }
+                    AppActions::EnterDir => {
+                        if self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize]
+                            .file_type()
+                            .unwrap()
+                            .is_dir()
+                        {
+                            let path =
+                                &self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize];
+                            self.ui.last_name =
+                                path.file_name().to_owned().to_str().unwrap().to_string();
+                            self.enter_dir(&path.path());
+                            self.ui.scroll_abs(0, self.dir_contents.len() as i32);
+                        }
+                    }
+                    AppActions::Quit => {
+                        self.should_quit = true;
+                    }
+                    AppActions::MoveToTop => self.ui.scroll_abs(0, self.dir_contents.len() as i32),
+                    AppActions::MoveToBottom => self.ui.scroll_abs(
+                        self.dir_contents.len() as i32 - 1,
+                        self.dir_contents.len() as i32,
+                    ),
+                    AppActions::CopyFiles => self.copy_files(selected_paths),
+                    AppActions::CutFiles => self.cut_files(selected_paths),
+                    AppActions::PasteFiles => self.paste_yanked_files(),
+                    AppActions::OpenCommandMode => {
+                        self.command_buffer = String::from("");
+                        self.command_mode = true;
+                    }
+                AppActions::DeleteFile => self.delete_files(selected_paths),
+            }
+    }
+
+    pub(crate) fn on_esc(&mut self) {
+        if self.command_mode {
+            self.command_mode = false;
+            self.command_buffer.clear();
+        }
+    }
+
+    pub(crate) fn on_enter(&mut self) {
+        if self.command_mode {
+            // TODO: Parse command
+            self.on_esc();
+        }
+    }
+
 }
 
 fn str_to_char_arr(s: &str) -> Vec<char> {

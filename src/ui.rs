@@ -5,7 +5,7 @@ use tui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::Span,
-    widgets::{Block, Borders, List, ListItem},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
     Terminal,
 };
 
@@ -46,6 +46,8 @@ impl Ui {
         title: &str,
         bookmarks: &Vec<Bookmark>,
         dir_contents: &Vec<DirEntry>,
+        command_mode: bool,
+        command_buffer: &str,
     ) -> io::Result<()> {
         term.draw(|f| {
             // Border
@@ -105,10 +107,28 @@ impl Ui {
                 self.cursor_y, self.scroll_y
             ));
 
+            // Command mode
+            let cmd_text = Span::styled(format!(":{}", command_buffer), Style::default());
+            let cmd_line = Paragraph::new(cmd_text)
+                .block(Block::default())
+                .wrap(Wrap { trim: true });
+
             f.render_widget(block, size);
             f.render_widget(bookmark_list.clone(), chunks[0]);
             f.render_widget(item_list.clone(), chunks[1]);
             f.render_widget(debug, chunks[2]);
+
+            if command_mode {
+            f.render_widget(
+                cmd_line,
+                Rect {
+                    x: 1,
+                    y: size.height - 2,
+                    width: size.width - 1,
+                    height: 1,
+                },
+            );
+            }
         })?;
 
         Ok(())

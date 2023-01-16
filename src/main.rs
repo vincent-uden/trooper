@@ -6,9 +6,9 @@ mod app;
 mod ui;
 
 use std::{
-    io,
+    env, fs, io,
     path::Path,
-    time::{Duration, Instant}, env, fs,
+    time::{Duration, Instant},
 };
 
 use app::App;
@@ -65,6 +65,12 @@ fn run_app<B: Backend>(
                 match key.code {
                     crossterm::event::KeyCode::Char(c) => {
                         app.on_key(c);
+                    }
+                    crossterm::event::KeyCode::Esc => {
+                        app.on_esc();
+                    }
+                    crossterm::event::KeyCode::Enter => {
+                        app.on_enter();
                     }
                     _ => {}
                 }
