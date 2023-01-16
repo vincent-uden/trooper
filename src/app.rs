@@ -61,6 +61,9 @@ pub struct App<'a> {
 
     command_mode: bool,
     command_buffer: String,
+    command_buffer_tmp: String,
+    command_history: Vec<String>,
+    command_index: i32,
 }
 
 impl App<'_> {
@@ -80,6 +83,7 @@ impl App<'_> {
 
         let mut commands = HashMap::new();
         commands.insert(String::from("delete"), AppActions::DeleteFile);
+        commands.insert(String::from("up"), AppActions::MoveUp);
 
         App {
             title,
@@ -108,6 +112,9 @@ impl App<'_> {
             yank_mode: None,
             command_mode: false,
             command_buffer: String::from(""),
+            command_buffer_tmp: String::from(""),
+            command_history: Vec::new(),
+            command_index: -1,
         }
     }
 
@@ -358,9 +365,10 @@ impl App<'_> {
                 Some(action) => {
                     self.handle_action(*action);
                 }
-                None => ()
+                None => (),
             }
 
+            self.command_history.push(self.command_buffer.clone());
             self.on_esc();
         }
     }
@@ -369,6 +377,35 @@ impl App<'_> {
         if self.command_mode {
             if self.command_buffer.len() > 0 {
                 self.command_buffer.pop();
+            }
+        }
+    }
+
+    pub(crate) fn on_down(&mut self) {
+        if self.command_mode {
+            if self.command_index > 0 {
+                self.command_index = self.command_index - 1;
+                self.command_buffer = self.command_history
+                    [(self.command_history.len() as i32 - self.command_index - 1) as usize]
+                    .clone();
+            } else if self.command_index == 0 {
+                self.command_index = -1;
+                self.command_buffer = self.command_buffer_tmp.clone();
+            }
+        }
+    }
+
+    pub(crate) fn on_up(&mut self) {
+        if self.command_mode {
+            if self.command_index + 1 < self.command_history.len() as i32 {
+                if self.command_index == -1 {
+                    self.command_buffer_tmp = self.command_buffer.clone();
+                }
+                self.command_index = self.command_index + 1;
+
+                self.command_buffer = self.command_history
+                    [(self.command_history.len() as i32 - self.command_index - 1) as usize]
+                    .clone();
             }
         }
     }

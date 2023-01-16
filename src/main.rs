@@ -74,6 +74,12 @@ fn run_app<B: Backend>(
                     crossterm::event::KeyCode::Backspace => {
                         app.on_backspace();
                     }
+                    crossterm::event::KeyCode::Up => {
+                        app.on_up();
+                    }
+                    crossterm::event::KeyCode::Down => {
+                        app.on_down();
+                    }
                     _ => {}
                 }
             }
