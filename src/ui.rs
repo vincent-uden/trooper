@@ -119,15 +119,15 @@ impl Ui {
             f.render_widget(debug, chunks[2]);
 
             if command_mode {
-            f.render_widget(
-                cmd_line,
-                Rect {
-                    x: 1,
-                    y: size.height - 2,
-                    width: size.width - 1,
-                    height: 1,
-                },
-            );
+                f.render_widget(
+                    cmd_line,
+                    Rect {
+                        x: 1,
+                        y: size.height - 2,
+                        width: size.width - 1,
+                        height: 1,
+                    },
+                );
             }
         })?;
 

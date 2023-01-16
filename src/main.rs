@@ -6,7 +6,7 @@ mod app;
 mod ui;
 
 use std::{
-    env, fs, io,
+    env, io,
     path::Path,
     time::{Duration, Instant},
 };
@@ -21,7 +21,6 @@ use tui::{
     backend::{Backend, CrosstermBackend},
     Terminal,
 };
-use ui::Ui;
 
 fn main() -> Result<(), io::Error> {
     enable_raw_mode()?;
@@ -71,6 +70,9 @@ fn run_app<B: Backend>(
                     }
                     crossterm::event::KeyCode::Enter => {
                         app.on_enter();
+                    }
+                    crossterm::event::KeyCode::Backspace => {
+                        app.on_backspace();
                     }
                     _ => {}
                 }

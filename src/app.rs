@@ -6,11 +6,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use fs_extra::dir::CopyOptions;
 use tui::{backend::Backend, Terminal};
 
 use crate::ui::Ui;
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone, Copy)]
 enum AppActions {
     MoveDown,
     MoveUp,
@@ -26,6 +27,7 @@ enum AppActions {
     DeleteFile,
 }
 
+#[derive(PartialEq, Clone, Copy)]
 enum YankMode {
     Copying,
     Cutting,
@@ -52,6 +54,7 @@ pub struct App<'a> {
     last_char: char,
     key_chord: Vec<char>,
     bindings: HashMap<Vec<char>, AppActions>,
+    commands: HashMap<String, AppActions>,
     // ---
     yank_reg: Box<PathBuf>,
     yank_mode: Option<YankMode>,
@@ -75,6 +78,9 @@ impl App<'_> {
         bindings.insert(str_to_char_arr("p"), AppActions::PasteFiles);
         bindings.insert(str_to_char_arr(":"), AppActions::OpenCommandMode);
 
+        let mut commands = HashMap::new();
+        commands.insert(String::from("delete"), AppActions::DeleteFile);
+
         App {
             title,
             should_quit: false,
@@ -97,6 +103,7 @@ impl App<'_> {
             last_char: ' ',
             key_chord: Vec::new(),
             bindings,
+            commands,
             yank_reg: Box::<PathBuf>::new("/tmp/rust_fm_yank.txt".into()),
             yank_mode: None,
             command_mode: false,
@@ -110,19 +117,17 @@ impl App<'_> {
         self.key_chord.push(c);
         let mut matched = true;
 
-
-
         if self.command_mode {
             self.command_buffer.push(c);
         } else {
-        // Figure out some way to do this shit with borrowing
-        let maybe_action = self.get_binding();
-        match maybe_action {
-            Some(action) => {
-                self.handle_action(action);
-            },
-            None => matched = false,
-        }
+            // Figure out some way to do this shit with borrowing
+            let maybe_action = self.get_binding();
+            match maybe_action {
+                Some(action) => {
+                    self.handle_action(action);
+                }
+                None => matched = false,
+            }
         }
 
         if matched {
@@ -199,10 +204,17 @@ impl App<'_> {
         self.yank_mode = Some(YankMode::Copying);
     }
 
-    fn delete_files(&self, paths: Vec<PathBuf>) {
-        // TODO: Implement for files and directories
+    fn delete_files(&mut self, paths: Vec<PathBuf>) {
         for p in paths {
+            let md = fs::metadata(&p).unwrap();
+            if md.is_dir() {
+                fs::remove_dir_all(&p).unwrap();
+            } else if md.is_file() {
+                fs::remove_file(&p).unwrap();
+            }
         }
+
+        self.update_dir_contents();
     }
 
     fn cut_files(&mut self, paths: Vec<PathBuf>) {
@@ -217,7 +229,11 @@ impl App<'_> {
     }
 
     fn get_selected_entries(&self) -> Vec<&DirEntry> {
-        vec![&self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize]]
+        if !&self.dir_contents.is_empty() {
+            vec![&self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize]]
+        } else {
+            Vec::new()
+        }
     }
 
     fn paste_yanked_files(&mut self) {
@@ -229,14 +245,37 @@ impl App<'_> {
         for l in lines {
             if l.len() > 0 {
                 let p = Path::new(l);
-                let dest = dest_dir.join(p.file_name().unwrap());
+                let mut dest = dest_dir.join(p.file_name().unwrap());
+                let md = fs::metadata(&p).unwrap();
 
-                // TODO: Doesn't copy directories
-                let copy_success = fs::copy(&p, dest);
+                while dest.exists() {
+                    dest.set_file_name(format!(
+                        "{} (Copy).{}",
+                        dest.file_stem().unwrap().to_str().unwrap(),
+                        dest.extension().unwrap().to_str().unwrap()
+                    ));
+                }
 
-                if let Ok(_) = copy_success {
-                    if let Some(_) = &self.yank_mode {
-                        fs::remove_file(&p).unwrap();
+                if md.is_dir() {
+                    let copy_options = CopyOptions::new();
+                    let copy_success = fs_extra::dir::copy(&p, dest, &copy_options);
+
+                    if let Ok(_) = copy_success {
+                        if let Some(ym) = self.yank_mode {
+                            if ym == YankMode::Cutting {
+                                fs::remove_dir_all(&p).unwrap();
+                            }
+                        }
+                    }
+                } else if md.is_file() {
+                    let copy_success = fs::copy(&p, dest);
+
+                    if let Ok(_) = copy_success {
+                        if let Some(ym) = self.yank_mode {
+                            if ym == YankMode::Cutting {
+                                fs::remove_file(&p).unwrap();
+                            }
+                        }
                     }
                 }
             }
@@ -258,54 +297,52 @@ impl App<'_> {
             .iter()
             .map(|d| d.path())
             .collect();
-            match action {
-                    AppActions::MoveDown => self.ui.scroll(1, self.dir_contents.len() as i32),
-                    AppActions::MoveUp => self.ui.scroll(-1, self.dir_contents.len() as i32),
-                    AppActions::MoveUpDir => {
-                        self.move_up_dir();
-                        self.ui.scroll_abs(
-                            self.find_name(self.ui.last_name.clone()).unwrap_or(0),
-                            self.dir_contents.len() as i32,
-                        );
-                        self.ui.last_name = self
-                            .current_dir
-                            .file_name()
-                            .unwrap_or(OsStr::new(""))
-                            .to_str()
-                            .unwrap()
-                            .to_string();
-                    }
-                    AppActions::EnterDir => {
-                        if self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize]
-                            .file_type()
-                            .unwrap()
-                            .is_dir()
-                        {
-                            let path =
-                                &self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize];
-                            self.ui.last_name =
-                                path.file_name().to_owned().to_str().unwrap().to_string();
-                            self.enter_dir(&path.path());
-                            self.ui.scroll_abs(0, self.dir_contents.len() as i32);
-                        }
-                    }
-                    AppActions::Quit => {
-                        self.should_quit = true;
-                    }
-                    AppActions::MoveToTop => self.ui.scroll_abs(0, self.dir_contents.len() as i32),
-                    AppActions::MoveToBottom => self.ui.scroll_abs(
-                        self.dir_contents.len() as i32 - 1,
-                        self.dir_contents.len() as i32,
-                    ),
-                    AppActions::CopyFiles => self.copy_files(selected_paths),
-                    AppActions::CutFiles => self.cut_files(selected_paths),
-                    AppActions::PasteFiles => self.paste_yanked_files(),
-                    AppActions::OpenCommandMode => {
-                        self.command_buffer = String::from("");
-                        self.command_mode = true;
-                    }
-                AppActions::DeleteFile => self.delete_files(selected_paths),
+        match action {
+            AppActions::MoveDown => self.ui.scroll(1, self.dir_contents.len() as i32),
+            AppActions::MoveUp => self.ui.scroll(-1, self.dir_contents.len() as i32),
+            AppActions::MoveUpDir => {
+                self.move_up_dir();
+                self.ui.scroll_abs(
+                    self.find_name(self.ui.last_name.clone()).unwrap_or(0),
+                    self.dir_contents.len() as i32,
+                );
+                self.ui.last_name = self
+                    .current_dir
+                    .file_name()
+                    .unwrap_or(OsStr::new(""))
+                    .to_str()
+                    .unwrap()
+                    .to_string();
             }
+            AppActions::EnterDir => {
+                if self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize]
+                    .file_type()
+                    .unwrap()
+                    .is_dir()
+                {
+                    let path = &self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize];
+                    self.ui.last_name = path.file_name().to_owned().to_str().unwrap().to_string();
+                    self.enter_dir(&path.path());
+                    self.ui.scroll_abs(0, self.dir_contents.len() as i32);
+                }
+            }
+            AppActions::Quit => {
+                self.should_quit = true;
+            }
+            AppActions::MoveToTop => self.ui.scroll_abs(0, self.dir_contents.len() as i32),
+            AppActions::MoveToBottom => self.ui.scroll_abs(
+                self.dir_contents.len() as i32 - 1,
+                self.dir_contents.len() as i32,
+            ),
+            AppActions::CopyFiles => self.copy_files(selected_paths),
+            AppActions::CutFiles => self.cut_files(selected_paths),
+            AppActions::PasteFiles => self.paste_yanked_files(),
+            AppActions::OpenCommandMode => {
+                self.command_buffer = String::from("");
+                self.command_mode = true;
+            }
+            AppActions::DeleteFile => self.delete_files(selected_paths),
+        }
     }
 
     pub(crate) fn on_esc(&mut self) {
@@ -317,11 +354,24 @@ impl App<'_> {
 
     pub(crate) fn on_enter(&mut self) {
         if self.command_mode {
-            // TODO: Parse command
+            match self.commands.get(&self.command_buffer) {
+                Some(action) => {
+                    self.handle_action(*action);
+                }
+                None => ()
+            }
+
             self.on_esc();
         }
     }
 
+    pub(crate) fn on_backspace(&mut self) {
+        if self.command_mode {
+            if self.command_buffer.len() > 0 {
+                self.command_buffer.pop();
+            }
+        }
+    }
 }
 
 fn str_to_char_arr(s: &str) -> Vec<char> {
