@@ -31,7 +31,8 @@ fn main() -> Result<(), io::Error> {
     let mut terminal = Terminal::new(backend)?;
 
     let p = env::current_dir().unwrap_or(Path::new("/").to_path_buf());
-    let app = App::new(String::from("File Manager"), &p);
+    let mut app = App::new(String::from("File Manager"), &p);
+    app.init();
     run_app(&mut terminal, app, Duration::from_millis(100))?;
 
     disable_raw_mode()?;
@@ -91,6 +92,7 @@ fn run_app<B: Backend>(
         }
 
         if app.should_quit {
+            app.tear_down();
             return Ok(());
         }
     }

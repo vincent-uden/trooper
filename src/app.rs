@@ -1,12 +1,13 @@
 use std::{
     collections::HashMap,
     ffi::OsStr,
-    fs::{self, DirEntry, FileType},
-    io,
+    fs::{self, DirEntry, File},
+    io::{self, BufReader},
     path::{Path, PathBuf},
 };
 
 use fs_extra::dir::CopyOptions;
+use serde::{Deserialize, Serialize};
 use tui::{backend::Backend, Terminal};
 
 use crate::ui::Ui;
@@ -25,6 +26,8 @@ enum AppActions {
     PasteFiles,
     OpenCommandMode,
     DeleteFile,
+    CreateBookmark,
+    DeleteBookmark,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -33,12 +36,13 @@ enum YankMode {
     Cutting,
 }
 
-pub struct Bookmark<'a> {
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Bookmark {
     pub name: String,
-    pub path: &'a Path,
+    pub path: Box<PathBuf>,
 }
 
-pub struct App<'a> {
+pub struct App {
     pub title: String,
 
     pub should_quit: bool,
@@ -46,7 +50,7 @@ pub struct App<'a> {
 
     pub dir_contents: Vec<DirEntry>,
 
-    pub bookmarks: Vec<Bookmark<'a>>,
+    pub bookmarks: Vec<Bookmark>,
 
     ui: Ui,
 
@@ -59,6 +63,8 @@ pub struct App<'a> {
     yank_reg: Box<PathBuf>,
     yank_mode: Option<YankMode>,
 
+    bookmark_store: Box<PathBuf>,
+
     command_mode: bool,
     command_buffer: String,
     command_buffer_tmp: String,
@@ -66,7 +72,7 @@ pub struct App<'a> {
     command_index: i32,
 }
 
-impl App<'_> {
+impl App {
     pub fn new(title: String, current_dir: &Path) -> App {
         let mut bindings = HashMap::new();
         bindings.insert(str_to_char_arr("j"), AppActions::MoveDown);
@@ -84,6 +90,10 @@ impl App<'_> {
         let mut commands = HashMap::new();
         commands.insert(String::from("delete"), AppActions::DeleteFile);
         commands.insert(String::from("up"), AppActions::MoveUp);
+        commands.insert(String::from("bookmark"), AppActions::CreateBookmark);
+        commands.insert(String::from("del_bookmark"), AppActions::DeleteBookmark);
+        commands.insert(String::from("bm"), AppActions::CreateBookmark);
+        commands.insert(String::from("dbm"), AppActions::DeleteBookmark);
 
         App {
             title,
@@ -93,16 +103,10 @@ impl App<'_> {
                 .unwrap()
                 .map(|x| x.unwrap())
                 .collect(),
-            bookmarks: vec![
-                Bookmark {
-                    name: String::from("Nextcloud"),
-                    path: Path::new("/home/vincent/Nextcloud"),
-                },
-                Bookmark {
-                    name: String::from("Obsidian"),
-                    path: Path::new("/home/vincent/Nextcloud/chalmers/Obsidian"),
-                },
-            ],
+            bookmarks: vec![Bookmark {
+                name: String::from("Nextcloud"),
+                path: Box::<PathBuf>::new("/home/vincent/Nextcloud".into()),
+            }],
             ui: Ui::new(current_dir.to_str().unwrap()),
             last_char: ' ',
             key_chord: Vec::new(),
@@ -110,12 +114,37 @@ impl App<'_> {
             commands,
             yank_reg: Box::<PathBuf>::new("/tmp/rust_fm_yank.txt".into()),
             yank_mode: None,
+            bookmark_store: Box::<PathBuf>::new(
+                dirs::home_dir()
+                    .unwrap_or(Path::new("/tmp/").to_path_buf())
+                    .join(".trooper/bookmarks.txt"),
+            ),
             command_mode: false,
             command_buffer: String::from(""),
             command_buffer_tmp: String::from(""),
             command_history: Vec::new(),
             command_index: -1,
         }
+    }
+
+    pub fn init(&mut self) {
+        fs::create_dir_all(self.bookmark_store.parent().unwrap()).unwrap();
+
+        if !Path::new(self.bookmark_store.as_path()).exists() {
+            fs::write(self.bookmark_store.as_path(), "[]").unwrap();
+        }
+
+        let f = File::open(self.bookmark_store.as_path()).unwrap();
+        let bookmark_file = BufReader::new(f);
+        self.bookmarks = serde_json::from_reader(bookmark_file).unwrap_or(vec![]);
+    }
+
+    pub fn tear_down(&mut self) {
+        fs::write(
+            self.bookmark_store.as_path(),
+            serde_json::to_string(&self.bookmarks).unwrap(),
+        )
+        .unwrap();
     }
 
     pub fn on_key(&mut self, c: char) {
@@ -349,6 +378,8 @@ impl App<'_> {
                 self.command_mode = true;
             }
             AppActions::DeleteFile => self.delete_files(selected_paths),
+            AppActions::CreateBookmark => self.create_bookmark(),
+            AppActions::DeleteBookmark => self.delete_bookmark(),
         }
     }
 
@@ -408,6 +439,24 @@ impl App<'_> {
                     .clone();
             }
         }
+    }
+
+    fn create_bookmark(&mut self) {
+        self.bookmarks.push(Bookmark {
+            name: String::from(
+                self.current_dir
+                    .file_name()
+                    .unwrap_or(&OsStr::new("No file name"))
+                    .to_str()
+                    .unwrap_or("No file name"),
+            ),
+            path: self.current_dir.to_owned(),
+        });
+    }
+
+    fn delete_bookmark(&mut self) {
+        // Delete the selected bookmark, requires bookmark controls
+        todo!();
     }
 }
 
