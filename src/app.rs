@@ -28,6 +28,7 @@ enum AppActions {
     DeleteFile,
     CreateBookmark,
     DeleteBookmark,
+    ToggleBookmark,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -40,6 +41,12 @@ enum YankMode {
 pub struct Bookmark {
     pub name: String,
     pub path: Box<PathBuf>,
+}
+
+#[derive(PartialEq, Clone, Copy)]
+pub enum ActivePanel {
+    Main,
+    Bookmarks,
 }
 
 pub struct App {
@@ -59,6 +66,7 @@ pub struct App {
     key_chord: Vec<char>,
     bindings: HashMap<Vec<char>, AppActions>,
     commands: HashMap<String, AppActions>,
+    active_panel: ActivePanel,
     // ---
     yank_reg: Box<PathBuf>,
     yank_mode: Option<YankMode>,
@@ -86,6 +94,7 @@ impl App {
         bindings.insert(str_to_char_arr("dd"), AppActions::CutFiles);
         bindings.insert(str_to_char_arr("p"), AppActions::PasteFiles);
         bindings.insert(str_to_char_arr(":"), AppActions::OpenCommandMode);
+        bindings.insert(str_to_char_arr("b"), AppActions::ToggleBookmark);
 
         let mut commands = HashMap::new();
         commands.insert(String::from("delete"), AppActions::DeleteFile);
@@ -112,6 +121,7 @@ impl App {
             key_chord: Vec::new(),
             bindings,
             commands,
+            active_panel: ActivePanel::Main,
             yank_reg: Box::<PathBuf>::new("/tmp/rust_fm_yank.txt".into()),
             yank_mode: None,
             bookmark_store: Box::<PathBuf>::new(
@@ -137,6 +147,8 @@ impl App {
         let f = File::open(self.bookmark_store.as_path()).unwrap();
         let bookmark_file = BufReader::new(f);
         self.bookmarks = serde_json::from_reader(bookmark_file).unwrap_or(vec![]);
+
+        self.update_bookmark_width();
     }
 
     pub fn tear_down(&mut self) {
@@ -216,6 +228,7 @@ impl App {
             &self.dir_contents,
             self.command_mode,
             &self.command_buffer,
+            &self.active_panel,
         )
     }
 
@@ -270,6 +283,11 @@ impl App {
         } else {
             Vec::new()
         }
+    }
+
+    fn get_selected_bookmark(&self) -> Option<&Bookmark> {
+        self.bookmarks
+            .get((self.ui.bookmark_y + self.ui.bookmark_scroll_y) as usize)
     }
 
     fn paste_yanked_files(&mut self) {
@@ -333,53 +351,103 @@ impl App {
             .iter()
             .map(|d| d.path())
             .collect();
-        match action {
-            AppActions::MoveDown => self.ui.scroll(1, self.dir_contents.len() as i32),
-            AppActions::MoveUp => self.ui.scroll(-1, self.dir_contents.len() as i32),
-            AppActions::MoveUpDir => {
-                self.move_up_dir();
-                self.ui.scroll_abs(
-                    self.find_name(self.ui.last_name.clone()).unwrap_or(0),
-                    self.dir_contents.len() as i32,
-                );
-                self.ui.last_name = self
-                    .current_dir
-                    .file_name()
-                    .unwrap_or(OsStr::new(""))
-                    .to_str()
-                    .unwrap()
-                    .to_string();
-            }
-            AppActions::EnterDir => {
-                if self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize]
-                    .file_type()
-                    .unwrap()
-                    .is_dir()
-                {
-                    let path = &self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize];
-                    self.ui.last_name = path.file_name().to_owned().to_str().unwrap().to_string();
-                    self.enter_dir(&path.path());
-                    self.ui.scroll_abs(0, self.dir_contents.len() as i32);
+        match self.active_panel {
+            ActivePanel::Main => match action {
+                AppActions::MoveDown => {
+                    self.ui
+                        .scroll(1, self.dir_contents.len() as i32, &self.active_panel)
                 }
-            }
-            AppActions::Quit => {
-                self.should_quit = true;
-            }
-            AppActions::MoveToTop => self.ui.scroll_abs(0, self.dir_contents.len() as i32),
-            AppActions::MoveToBottom => self.ui.scroll_abs(
-                self.dir_contents.len() as i32 - 1,
-                self.dir_contents.len() as i32,
-            ),
-            AppActions::CopyFiles => self.copy_files(selected_paths),
-            AppActions::CutFiles => self.cut_files(selected_paths),
-            AppActions::PasteFiles => self.paste_yanked_files(),
-            AppActions::OpenCommandMode => {
-                self.command_buffer = String::from("");
-                self.command_mode = true;
-            }
-            AppActions::DeleteFile => self.delete_files(selected_paths),
-            AppActions::CreateBookmark => self.create_bookmark(),
-            AppActions::DeleteBookmark => self.delete_bookmark(),
+                AppActions::MoveUp => {
+                    self.ui
+                        .scroll(-1, self.dir_contents.len() as i32, &self.active_panel)
+                }
+                AppActions::MoveUpDir => {
+                    self.move_up_dir();
+                    self.ui.scroll_abs(
+                        self.find_name(self.ui.last_name.clone()).unwrap_or(0),
+                        self.dir_contents.len() as i32,
+                        &self.active_panel,
+                    );
+                    self.ui.last_name = self
+                        .current_dir
+                        .file_name()
+                        .unwrap_or(OsStr::new(""))
+                        .to_str()
+                        .unwrap()
+                        .to_string();
+                }
+                AppActions::EnterDir => {
+                    if self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize]
+                        .file_type()
+                        .unwrap()
+                        .is_dir()
+                    {
+                        let path =
+                            &self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize];
+                        self.ui.last_name =
+                            path.file_name().to_owned().to_str().unwrap().to_string();
+                        self.enter_dir(&path.path());
+                        self.ui
+                            .scroll_abs(0, self.dir_contents.len() as i32, &self.active_panel);
+                    }
+                }
+                AppActions::Quit => {
+                    self.should_quit = true;
+                }
+                AppActions::MoveToTop => {
+                    self.ui
+                        .scroll_abs(0, self.dir_contents.len() as i32, &self.active_panel)
+                }
+                AppActions::MoveToBottom => self.ui.scroll_abs(
+                    self.dir_contents.len() as i32 - 1,
+                    self.dir_contents.len() as i32,
+                    &self.active_panel,
+                ),
+                AppActions::CopyFiles => self.copy_files(selected_paths),
+                AppActions::CutFiles => self.cut_files(selected_paths),
+                AppActions::PasteFiles => self.paste_yanked_files(),
+                AppActions::OpenCommandMode => {
+                    self.command_buffer = String::from("");
+                    self.command_mode = true;
+                }
+                AppActions::DeleteFile => self.delete_files(selected_paths),
+                AppActions::CreateBookmark => self.create_bookmark(),
+                AppActions::DeleteBookmark => {}
+                AppActions::ToggleBookmark => match self.active_panel {
+                    ActivePanel::Main => self.active_panel = ActivePanel::Bookmarks,
+                    ActivePanel::Bookmarks => self.active_panel = ActivePanel::Main,
+                },
+            },
+            ActivePanel::Bookmarks => match action {
+                AppActions::MoveDown => {
+                    self.ui
+                        .scroll(1, self.bookmarks.len() as i32, &self.active_panel)
+                }
+                AppActions::MoveUp => {
+                    self.ui
+                        .scroll(-1, self.bookmarks.len() as i32, &self.active_panel)
+                }
+                AppActions::EnterDir => {
+                    if let Some(b) = self.get_selected_bookmark() {
+                        let path = b.path.clone();
+                        self.enter_dir(&path);
+                    }
+                    self.active_panel = ActivePanel::Main;
+                    self.ui
+                        .scroll_abs(0, self.dir_contents.len() as i32, &self.active_panel);
+                }
+                AppActions::Quit => self.should_quit = true,
+                AppActions::DeleteBookmark => self.delete_bookmark(),
+                AppActions::ToggleBookmark => match self.active_panel {
+                    ActivePanel::Main => self.active_panel = ActivePanel::Bookmarks,
+                    ActivePanel::Bookmarks => self.active_panel = ActivePanel::Main,
+                },
+                AppActions::OpenCommandMode => {
+                    self.command_buffer = String::from("");
+                    self.command_mode = true;
+                }
+                _ => {}
+            },
         }
     }
 
@@ -452,11 +520,27 @@ impl App {
             ),
             path: self.current_dir.to_owned(),
         });
+
+        self.update_bookmark_width();
     }
 
     fn delete_bookmark(&mut self) {
-        // Delete the selected bookmark, requires bookmark controls
-        todo!();
+        let i = (self.ui.bookmark_scroll_y + self.ui.bookmark_y) as usize;
+        if i < self.bookmarks.len() {
+            self.bookmarks.remove(i);
+        }
+
+        self.update_bookmark_width();
+    }
+
+    fn update_bookmark_width(&mut self) {
+        let mut max_len: u16 = 15;
+        for b in &self.bookmarks {
+            if b.name.len() > max_len.into() {
+                max_len = b.name.len() as u16;
+            }
+        }
+        self.ui.bookmark_width = max_len + 1;
     }
 }
 

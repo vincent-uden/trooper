@@ -5,21 +5,25 @@ use tui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::Span,
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, List, ListItem, Paragraph, Wrap},
     Terminal,
 };
 
-use crate::app::Bookmark;
+use crate::app::{ActivePanel, Bookmark};
 
 pub struct Ui {
     pub cursor_y: i32,
     pub scroll_y: i32,
+
+    pub bookmark_y: i32,
+    pub bookmark_scroll_y: i32,
 
     inside: Rect,
 
     layout: Layout,
 
     pub last_name: String,
+    pub bookmark_width: u16,
 }
 
 impl Ui {
@@ -27,6 +31,9 @@ impl Ui {
         Ui {
             cursor_y: 0,
             scroll_y: 0,
+
+            bookmark_y: 0,
+            bookmark_scroll_y: 0,
 
             inside: Rect::new(0, 0, 0, 0),
             layout: Layout::default()
@@ -37,6 +44,7 @@ impl Ui {
                     Constraint::Max(40),
                 ]),
             last_name: String::from(start_dir),
+            bookmark_width: 15,
         }
     }
 
@@ -48,8 +56,17 @@ impl Ui {
         dir_contents: &Vec<DirEntry>,
         command_mode: bool,
         command_buffer: &str,
+        active_panel: &ActivePanel,
     ) -> io::Result<()> {
         term.draw(|f| {
+            self.layout = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Length(self.bookmark_width),
+                    Constraint::Min(20),
+                    Constraint::Max(40),
+                ]);
+
             // Border
             let size = f.size();
             let block = Block::default()
@@ -57,6 +74,7 @@ impl Ui {
                     title.replace("\\", "/"),
                     Style::default().add_modifier(Modifier::BOLD),
                 ))
+                .title_alignment(tui::layout::Alignment::Center)
                 .borders(Borders::ALL);
 
             // Layout
@@ -65,31 +83,47 @@ impl Ui {
             self.inside.width = self.inside.width - 2;
 
             let chunks = self.layout.split(self.inside);
+            let main_block = Block::default()
+                .borders(Borders::LEFT)
+                .border_style(Style::default().fg(Color::DarkGray));
 
             // Bookmarks
             let mut bookmarks_disp = vec![];
+            let mut i = 0;
             for b in bookmarks {
-                let s = Style::default();
+                let mut s = Style::default();
+
+                if i == self.bookmark_scroll_y + self.bookmark_y
+                    && *active_panel == ActivePanel::Bookmarks
+                {
+                    s = s
+                        .fg(Color::Black)
+                        .bg(Color::Blue)
+                        .add_modifier(Modifier::BOLD);
+                }
+
                 bookmarks_disp.push(ListItem::new(b.name.clone()).style(s));
+
+                i = i + 1;
             }
             let bookmark_list = List::new(bookmarks_disp);
 
             // File list
             let mut items = vec![];
-            let mut i = 0;
+            i = 0;
             for p in dir_contents {
                 let mut s = Style::default();
                 if p.file_type().unwrap().is_dir() {
                     s = s.fg(Color::Blue).add_modifier(Modifier::BOLD);
 
-                    if i == self.scroll_y + self.cursor_y {
+                    if i == self.scroll_y + self.cursor_y && *active_panel == ActivePanel::Main {
                         s = s
                             .fg(Color::Black)
                             .bg(Color::Blue)
                             .add_modifier(Modifier::BOLD);
                     }
                 } else {
-                    if i == self.scroll_y + self.cursor_y {
+                    if i == self.scroll_y + self.cursor_y && *active_panel == ActivePanel::Main {
                         s = s.fg(Color::Black).bg(Color::Blue);
                     }
                 }
@@ -113,9 +147,11 @@ impl Ui {
                 .block(Block::default())
                 .wrap(Wrap { trim: true });
 
+            let inner_main_block = main_block.inner(chunks[1]);
             f.render_widget(block, size);
             f.render_widget(bookmark_list.clone(), chunks[0]);
-            f.render_widget(item_list.clone(), chunks[1]);
+            f.render_widget(main_block, chunks[1]);
+            f.render_widget(item_list.clone(), inner_main_block);
             f.render_widget(debug, chunks[2]);
 
             if command_mode {
@@ -134,25 +170,44 @@ impl Ui {
         Ok(())
     }
 
-    pub(crate) fn scroll(&mut self, y: i32, max: i32) {
-        self.cursor_y = std::cmp::min(self.cursor_y + y, max - 1);
+    pub(crate) fn scroll(&mut self, y: i32, max: i32, active_panel: &ActivePanel) {
+        match active_panel {
+            ActivePanel::Main => {
+                self.cursor_y = std::cmp::min(self.cursor_y + y, max - 1);
 
-        if self.cursor_y < 0 {
-            self.cursor_y = 0;
-            self.scroll_y = self.scroll_y + y;
+                if self.cursor_y < 0 {
+                    self.cursor_y = 0;
+                    self.scroll_y = self.scroll_y + y;
 
-            if self.scroll_y < 0 {
-                self.scroll_y = 0;
+                    if self.scroll_y < 0 {
+                        self.scroll_y = 0;
+                    }
+                } else if self.cursor_y >= self.inside.height as i32 {
+                    self.cursor_y = self.inside.height as i32 - 1;
+                    self.scroll_y = self.scroll_y + y;
+                }
             }
-        } else if self.cursor_y >= self.inside.height as i32 {
-            self.cursor_y = self.inside.height as i32 - 1;
-            self.scroll_y = self.scroll_y + y;
+            ActivePanel::Bookmarks => {
+                self.bookmark_y = std::cmp::min(self.bookmark_y + y, max - 1);
+
+                if self.bookmark_y < 0 {
+                    self.bookmark_y = 0;
+                    self.bookmark_scroll_y = self.bookmark_y + y;
+
+                    if self.bookmark_scroll_y < 0 {
+                        self.bookmark_scroll_y = 0;
+                    }
+                } else if self.bookmark_y >= self.inside.height as i32 {
+                    self.bookmark_y = self.inside.height as i32 - 1;
+                    self.bookmark_scroll_y = self.bookmark_scroll_y + y;
+                }
+            }
         }
     }
 
-    pub(crate) fn scroll_abs(&mut self, y: i32, max: i32) {
+    pub(crate) fn scroll_abs(&mut self, y: i32, max: i32, active_panel: &ActivePanel) {
         self.cursor_y = 0;
         self.scroll_y = 0;
-        self.scroll(y, max);
+        self.scroll(y, max, active_panel);
     }
 }
