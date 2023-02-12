@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crossterm::event::{KeyModifiers, KeyEvent, KeyCode};
 use fs_extra::dir::CopyOptions;
 use serde::{Deserialize, Serialize};
 use tui::{backend::Backend, Terminal};
@@ -62,9 +63,9 @@ pub struct App {
     ui: Ui,
 
     // Vim Controls
-    last_char: char,
-    key_chord: Vec<char>,
-    bindings: HashMap<Vec<char>, AppActions>,
+    last_key: KeyEvent,
+    key_chord: Vec<KeyEvent>,
+    bindings: HashMap<Vec<KeyEvent>, AppActions>,
     commands: HashMap<String, AppActions>,
     active_panel: ActivePanel,
     // ---
@@ -83,18 +84,18 @@ pub struct App {
 impl App {
     pub fn new(title: String, current_dir: &Path) -> App {
         let mut bindings = HashMap::new();
-        bindings.insert(str_to_char_arr("j"), AppActions::MoveDown);
-        bindings.insert(str_to_char_arr("k"), AppActions::MoveUp);
-        bindings.insert(str_to_char_arr("h"), AppActions::MoveUpDir);
-        bindings.insert(str_to_char_arr("l"), AppActions::EnterDir);
-        bindings.insert(str_to_char_arr("q"), AppActions::Quit);
-        bindings.insert(str_to_char_arr("gg"), AppActions::MoveToTop);
-        bindings.insert(str_to_char_arr("G"), AppActions::MoveToBottom);
-        bindings.insert(str_to_char_arr("yy"), AppActions::CopyFiles);
-        bindings.insert(str_to_char_arr("dd"), AppActions::CutFiles);
-        bindings.insert(str_to_char_arr("p"), AppActions::PasteFiles);
-        bindings.insert(str_to_char_arr(":"), AppActions::OpenCommandMode);
-        bindings.insert(str_to_char_arr("b"), AppActions::ToggleBookmark);
+        bindings.insert(str_to_key_events("j"), AppActions::MoveDown);
+        bindings.insert(str_to_key_events("k"), AppActions::MoveUp);
+        bindings.insert(str_to_key_events("h"), AppActions::MoveUpDir);
+        bindings.insert(str_to_key_events("l"), AppActions::EnterDir);
+        bindings.insert(str_to_key_events("q"), AppActions::Quit);
+        bindings.insert(str_to_key_events("gg"), AppActions::MoveToTop);
+        bindings.insert(str_to_key_events("G"), AppActions::MoveToBottom);
+        bindings.insert(str_to_key_events("yy"), AppActions::CopyFiles);
+        bindings.insert(str_to_key_events("dd"), AppActions::CutFiles);
+        bindings.insert(str_to_key_events("p"), AppActions::PasteFiles);
+        bindings.insert(str_to_key_events(":"), AppActions::OpenCommandMode);
+        bindings.insert(str_to_key_events("b"), AppActions::ToggleBookmark);
 
         let mut commands = HashMap::new();
         commands.insert(String::from("delete"), AppActions::DeleteFile);
@@ -117,7 +118,7 @@ impl App {
                 path: Box::<PathBuf>::new("/home/vincent/Nextcloud".into()),
             }],
             ui: Ui::new(current_dir.to_str().unwrap()),
-            last_char: ' ',
+            last_key: KeyEvent::new(KeyCode::Null, KeyModifiers::empty()),
             key_chord: Vec::new(),
             bindings,
             commands,
@@ -159,14 +160,23 @@ impl App {
         .unwrap();
     }
 
-    pub fn on_key(&mut self, c: char) {
-        self.last_char = c;
+    pub fn on_key(&mut self, key: KeyEvent) {
+        self.last_key = key;
+        /*
+        if mods.intersects(KeyModifiers::CONTROL) {
+            self.should_quit = true;
+            return;
+        }
+        */
 
-        self.key_chord.push(c);
+        self.key_chord.push(key);
         let mut matched = true;
 
         if self.command_mode {
-            self.command_buffer.push(c);
+            match key.code {
+                KeyCode::Char(c) => self.command_buffer.push(c),
+                _ => {}
+            }
         } else {
             // Figure out some way to do this shit with borrowing
             let maybe_action = self.get_binding();
@@ -548,6 +558,14 @@ fn str_to_char_arr(s: &str) -> Vec<char> {
     let mut output = Vec::with_capacity(s.len());
     for c in s.chars() {
         output.push(c);
+    }
+    output
+}
+
+fn str_to_key_events(s: &str) -> Vec<KeyEvent> {
+    let mut output = Vec::with_capacity(s.len());
+    for c in s.chars() {
+        output.push(KeyEvent::new(KeyCode::Char(c), KeyModifiers::empty()));
     }
     output
 }

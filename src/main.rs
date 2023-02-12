@@ -1,7 +1,3 @@
-// TODO:
-//  - renaming files/dirs
-//  - controls for bookmarks
-
 mod app;
 mod ui;
 
@@ -63,8 +59,8 @@ fn run_app<B: Backend>(
         if crossterm::event::poll(timeout)? {
             if let Event::Key(key) = crossterm::event::read()? {
                 match key.code {
-                    crossterm::event::KeyCode::Char(c) => {
-                        app.on_key(c);
+                    crossterm::event::KeyCode::Char(_) => {
+                        app.on_key(key);
                     }
                     crossterm::event::KeyCode::Esc => {
                         app.on_esc();
