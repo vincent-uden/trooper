@@ -32,6 +32,7 @@ enum AppActions {
     ToggleBookmark,
     MoveToLeftPanel,
     MoveToRightPanel,
+    MoveEntry,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -128,6 +129,7 @@ impl App {
         commands.insert(String::from("del_bookmark"), AppActions::DeleteBookmark);
         commands.insert(String::from("bm"), AppActions::CreateBookmark);
         commands.insert(String::from("dbm"), AppActions::DeleteBookmark);
+        commands.insert(String::from("mv"), AppActions::MoveEntry);
 
         App {
             title,
@@ -206,7 +208,7 @@ impl App {
             let maybe_action = self.get_binding();
             match maybe_action {
                 Some(action) => {
-                    self.handle_action(action);
+                    self.handle_action(action, vec![]);
                 }
                 None => matched = false,
             }
@@ -379,7 +381,7 @@ impl App {
             .collect();
     }
 
-    fn handle_action(&mut self, action: AppActions) {
+    fn handle_action(&mut self, action: AppActions, args: Vec<String>) {
         let selected_paths = self
             .get_selected_entries()
             .iter()
@@ -453,6 +455,11 @@ impl App {
                 AppActions::MoveToLeftPanel => {
                     self.active_panel = ActivePanel::Bookmarks;
                 }
+                AppActions::MoveEntry => {
+                    if args.len() > 0 && selected_paths.len() == 1 {
+                        self.mv_entry(&selected_paths[0], &args[0]);
+                    }
+                }
                 _ => {}
             },
             ActivePanel::Bookmarks => match action {
@@ -500,15 +507,20 @@ impl App {
 
     pub(crate) fn on_enter(&mut self) {
         if self.command_mode {
-            match self.commands.get(&self.command_buffer) {
-                Some(action) => {
-                    self.handle_action(*action);
-                }
-                None => (),
-            }
+            let words: Vec<&str> = self.command_buffer.split(" ").collect();
 
-            self.command_history.push(self.command_buffer.clone());
-            self.on_esc();
+            if let Some(cmd) = words.get(0) {
+                match self.commands.get(*cmd) {
+                    Some(action) => {
+                        let args = words[1..].into_iter().map(|x| String::from(*x)).collect();
+                        self.handle_action(*action, args);
+                    }
+                    None => (),
+                }
+
+                self.command_history.push(self.command_buffer.clone());
+                self.on_esc();
+            }
         }
     }
 
@@ -581,6 +593,12 @@ impl App {
             }
         }
         self.ui.bookmark_width = max_len + 1;
+    }
+
+    fn mv_entry(&mut self, src: &Path, dest: &str) {
+        let new_name = src.parent().unwrap().join(dest);
+        fs::rename(src, new_name).unwrap();
+        self.update_dir_contents();
     }
 }
 
