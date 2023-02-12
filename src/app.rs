@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crossterm::event::{KeyModifiers, KeyEvent, KeyCode};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fs_extra::dir::CopyOptions;
 use serde::{Deserialize, Serialize};
 use tui::{backend::Backend, Terminal};
@@ -30,6 +30,8 @@ enum AppActions {
     CreateBookmark,
     DeleteBookmark,
     ToggleBookmark,
+    MoveToLeftPanel,
+    MoveToRightPanel,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -96,6 +98,28 @@ impl App {
         bindings.insert(str_to_key_events("p"), AppActions::PasteFiles);
         bindings.insert(str_to_key_events(":"), AppActions::OpenCommandMode);
         bindings.insert(str_to_key_events("b"), AppActions::ToggleBookmark);
+        bindings.insert(
+            vec![
+                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL),
+            ],
+            AppActions::MoveToLeftPanel,
+        );
+        bindings.insert(
+            vec![
+                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL),
+            ],
+            AppActions::MoveToRightPanel,
+        );
+        bindings.insert(
+            vec![KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL)],
+            AppActions::MoveToLeftPanel,
+        );
+        bindings.insert(
+            vec![KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)],
+            AppActions::MoveToRightPanel,
+        );
 
         let mut commands = HashMap::new();
         commands.insert(String::from("delete"), AppActions::DeleteFile);
@@ -423,10 +447,13 @@ impl App {
                 AppActions::DeleteFile => self.delete_files(selected_paths),
                 AppActions::CreateBookmark => self.create_bookmark(),
                 AppActions::DeleteBookmark => {}
-                AppActions::ToggleBookmark => match self.active_panel {
-                    ActivePanel::Main => self.active_panel = ActivePanel::Bookmarks,
-                    ActivePanel::Bookmarks => self.active_panel = ActivePanel::Main,
-                },
+                AppActions::ToggleBookmark => {
+                    self.active_panel = ActivePanel::Bookmarks;
+                }
+                AppActions::MoveToLeftPanel => {
+                    self.active_panel = ActivePanel::Bookmarks;
+                }
+                _ => {}
             },
             ActivePanel::Bookmarks => match action {
                 AppActions::MoveDown => {
@@ -455,6 +482,9 @@ impl App {
                 AppActions::OpenCommandMode => {
                     self.command_buffer = String::from("");
                     self.command_mode = true;
+                }
+                AppActions::MoveToRightPanel => {
+                    self.active_panel = ActivePanel::Main;
                 }
                 _ => {}
             },

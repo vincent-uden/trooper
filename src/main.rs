@@ -62,6 +62,11 @@ fn run_app<B: Backend>(
                     crossterm::event::KeyCode::Char(_) => {
                         app.on_key(key);
                     }
+                    /* app.on_key used to take a character instead of a KeyEvent,
+                     * thus, helper function were required for Key presses not
+                     * corresponding to a char. Is there any benefit of keeping
+                     * these as separate functions?
+                     */
                     crossterm::event::KeyCode::Esc => {
                         app.on_esc();
                     }
