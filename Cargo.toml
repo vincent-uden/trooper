@@ -3,7 +3,7 @@ name = "trooper"
 version = "0.2.0"
 edition = "2021"
 description = "An EXPERIMENTAL file manager inspired by ranger."
-license="MIT"
+license="GPLv2"
 authors = ["Vincent Udén <vincentuden@gmail.com>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
