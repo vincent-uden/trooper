@@ -184,7 +184,7 @@ impl Ui {
                     }
                 } else if self.cursor_y >= self.inside.height as i32 {
                     self.cursor_y = self.inside.height as i32 - 1;
-                    self.scroll_y = self.scroll_y + y;
+                    self.scroll_y = std::cmp::min(self.scroll_y + y, max - self.inside.height as i32);
                 }
             }
             ActivePanel::Bookmarks => {
@@ -199,7 +199,7 @@ impl Ui {
                     }
                 } else if self.bookmark_y >= self.inside.height as i32 {
                     self.bookmark_y = self.inside.height as i32 - 1;
-                    self.bookmark_scroll_y = self.bookmark_scroll_y + y;
+                    self.bookmark_scroll_y = std::cmp::min(self.bookmark_scroll_y + y, max - self.inside.height as i32);
                 }
             }
         }
@@ -209,5 +209,25 @@ impl Ui {
         self.cursor_y = 0;
         self.scroll_y = 0;
         self.scroll(y, max, active_panel);
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::app::ActivePanel;
+
+    use super::Ui;
+
+    #[test]
+    fn scroll_past_end() {
+        let mut ui = Ui::new(".");
+        ui.inside.height = 30;
+
+        ui.scroll_abs(60, 60, &ActivePanel::Main);
+        assert!(ui.scroll_y + ui.cursor_y == 59, "Scrolled to index {}", ui.scroll_y + ui.cursor_y);
+
+        ui.scroll(1, 60, &ActivePanel::Main);
+        assert!(ui.scroll_y + ui.cursor_y == 59, "Scrolled to index {}", ui.scroll_y + ui.cursor_y);
     }
 }
