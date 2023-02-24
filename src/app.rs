@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    env::current_dir,
     ffi::OsStr,
     fs::{self, DirEntry, File},
     io::{self, BufReader},
@@ -33,6 +34,7 @@ enum AppActions {
     MoveToLeftPanel,
     MoveToRightPanel,
     MoveEntry,
+    ToggleHiddenFiles,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -82,6 +84,8 @@ pub struct App {
     command_buffer_tmp: String,
     command_history: Vec<String>,
     command_index: i32,
+
+    show_hidden_files: bool,
 }
 
 impl App {
@@ -121,6 +125,7 @@ impl App {
             vec![KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)],
             AppActions::MoveToRightPanel,
         );
+        bindings.insert(str_to_key_events("z"), AppActions::ToggleHiddenFiles);
 
         let mut commands = HashMap::new();
         commands.insert(String::from("delete"), AppActions::DeleteFile);
@@ -135,7 +140,7 @@ impl App {
             title,
             should_quit: false,
             current_dir: Box::<PathBuf>::new(current_dir.to_path_buf().clone()),
-            dir_contents: Self::read_dir_sorted(current_dir),
+            dir_contents: Vec::new(),
             bookmarks: vec![Bookmark {
                 name: String::from("Nextcloud"),
                 path: Box::<PathBuf>::new("/home/vincent/Nextcloud".into()),
@@ -158,10 +163,12 @@ impl App {
             command_buffer_tmp: String::from(""),
             command_history: Vec::new(),
             command_index: -1,
+            show_hidden_files: false,
         }
     }
 
     pub fn init(&mut self) {
+        self.enter_dir(&self.current_dir.to_owned());
         fs::create_dir_all(self.bookmark_store.parent().unwrap()).unwrap();
 
         if !Path::new(self.bookmark_store.as_path()).exists() {
@@ -244,12 +251,12 @@ impl App {
 
     pub(crate) fn enter_dir(&mut self, dir: &Path) {
         self.current_dir = Box::new(dir.to_path_buf());
-        self.dir_contents = Self::read_dir_sorted(dir);
+        self.dir_contents = self.read_dir_sorted(dir);
     }
 
     pub(crate) fn move_up_dir(&mut self) {
         let parent = self.current_dir.parent().unwrap().to_path_buf();
-        self.dir_contents = Self::read_dir_sorted(&parent);
+        self.dir_contents = self.read_dir_sorted(&parent);
         self.current_dir = Box::new(parent);
     }
 
@@ -372,10 +379,13 @@ impl App {
     }
 
     fn update_dir_contents(&mut self) {
-        self.dir_contents = fs::read_dir(self.current_dir.as_path())
-            .unwrap()
-            .map(|x| x.unwrap())
-            .collect();
+        self.dir_contents = self.read_dir_sorted(self.current_dir.as_path());
+
+        self.ui.scroll_abs(
+            self.ui.cursor_y + self.ui.scroll_y,
+            self.dir_contents.len() as i32,
+            &self.active_panel,
+        );
     }
 
     fn handle_action(&mut self, action: AppActions, args: Vec<String>) {
@@ -456,6 +466,10 @@ impl App {
                     if args.len() > 0 && selected_paths.len() == 1 {
                         self.mv_entry(&selected_paths[0], &args[0]);
                     }
+                }
+                AppActions::ToggleHiddenFiles => {
+                    self.show_hidden_files = !self.show_hidden_files;
+                    self.update_dir_contents();
                 }
                 _ => {}
             },
@@ -598,7 +612,7 @@ impl App {
         self.update_dir_contents();
     }
 
-    fn read_dir_sorted<P: AsRef<Path>>(path: P) -> Vec<DirEntry> {
+    fn read_dir_sorted<P: AsRef<Path>>(&self, path: P) -> Vec<DirEntry> {
         let mut contents: Vec<DirEntry> = fs::read_dir(path).unwrap().map(|x| x.unwrap()).collect();
         contents.sort_unstable_by_key(|item| {
             (
@@ -606,6 +620,23 @@ impl App {
                 item.path().as_path().to_str().unwrap().to_lowercase(),
             )
         });
+        contents = contents
+            .into_iter()
+            .filter(|item| {
+                if item
+                    .path()
+                    .file_stem()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with(".")
+                {
+                    self.show_hidden_files
+                } else {
+                    true
+                }
+            })
+            .collect();
 
         return contents;
     }
