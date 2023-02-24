@@ -135,10 +135,7 @@ impl App {
             title,
             should_quit: false,
             current_dir: Box::<PathBuf>::new(current_dir.to_path_buf().clone()),
-            dir_contents: fs::read_dir(current_dir)
-                .unwrap()
-                .map(|x| x.unwrap())
-                .collect(),
+            dir_contents: Self::read_dir_sorted(current_dir),
             bookmarks: vec![Bookmark {
                 name: String::from("Nextcloud"),
                 path: Box::<PathBuf>::new("/home/vincent/Nextcloud".into()),
@@ -247,12 +244,12 @@ impl App {
 
     pub(crate) fn enter_dir(&mut self, dir: &Path) {
         self.current_dir = Box::new(dir.to_path_buf());
-        self.dir_contents = fs::read_dir(dir).unwrap().map(|x| x.unwrap()).collect();
+        self.dir_contents = Self::read_dir_sorted(dir);
     }
 
     pub(crate) fn move_up_dir(&mut self) {
         let parent = self.current_dir.parent().unwrap().to_path_buf();
-        self.dir_contents = fs::read_dir(&parent).unwrap().map(|x| x.unwrap()).collect();
+        self.dir_contents = Self::read_dir_sorted(&parent);
         self.current_dir = Box::new(parent);
     }
 
@@ -599,6 +596,18 @@ impl App {
         let new_name = src.parent().unwrap().join(dest);
         fs::rename(src, new_name).unwrap();
         self.update_dir_contents();
+    }
+
+    fn read_dir_sorted<P: AsRef<Path>>(path: P) -> Vec<DirEntry> {
+        let mut contents: Vec<DirEntry> = fs::read_dir(path).unwrap().map(|x| x.unwrap()).collect();
+        contents.sort_unstable_by_key(|item| {
+            (
+                item.metadata().unwrap().is_file(),
+                item.path().as_path().to_str().unwrap().to_lowercase(),
+            )
+        });
+
+        return contents;
     }
 }
 
