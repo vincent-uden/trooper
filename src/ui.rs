@@ -41,7 +41,6 @@ impl Ui {
                 .constraints([
                     Constraint::Length(15),
                     Constraint::Min(20),
-                    Constraint::Max(40),
                 ]),
             last_name: String::from(start_dir),
             bookmark_width: 15,
@@ -64,7 +63,6 @@ impl Ui {
                 .constraints([
                     Constraint::Length(self.bookmark_width),
                     Constraint::Min(20),
-                    Constraint::Max(40),
                 ]);
 
             // Border
@@ -135,12 +133,6 @@ impl Ui {
             }
             let item_list = List::new(items);
 
-            // Debug info
-            let debug = Block::default().title(format!(
-                "Cursor: {} Scroll: {}",
-                self.cursor_y, self.scroll_y
-            ));
-
             // Command mode
             let cmd_text = Span::styled(format!(":{}", command_buffer), Style::default());
             let cmd_line = Paragraph::new(cmd_text)
@@ -152,7 +144,6 @@ impl Ui {
             f.render_widget(bookmark_list.clone(), chunks[0]);
             f.render_widget(main_block, chunks[1]);
             f.render_widget(item_list.clone(), inner_main_block);
-            f.render_widget(debug, chunks[2]);
 
             if command_mode {
                 f.render_widget(
