@@ -38,10 +38,7 @@ impl Ui {
             inside: Rect::new(0, 0, 0, 0),
             layout: Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Length(15),
-                    Constraint::Min(20),
-                ]),
+                .constraints([Constraint::Length(15), Constraint::Min(20)]),
             last_name: String::from(start_dir),
             bookmark_width: 15,
         }
@@ -60,10 +57,7 @@ impl Ui {
         term.draw(|f| {
             self.layout = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Length(self.bookmark_width),
-                    Constraint::Min(20),
-                ]);
+                .constraints([Constraint::Length(self.bookmark_width), Constraint::Min(20)]);
 
             // Border
             let size = f.size();
@@ -175,7 +169,8 @@ impl Ui {
                     }
                 } else if self.cursor_y >= self.inside.height as i32 {
                     self.cursor_y = self.inside.height as i32 - 1;
-                    self.scroll_y = std::cmp::min(self.scroll_y + y, max - self.inside.height as i32);
+                    self.scroll_y =
+                        std::cmp::min(self.scroll_y + y, max - self.inside.height as i32);
                 }
             }
             ActivePanel::Bookmarks => {
@@ -190,7 +185,8 @@ impl Ui {
                     }
                 } else if self.bookmark_y >= self.inside.height as i32 {
                     self.bookmark_y = self.inside.height as i32 - 1;
-                    self.bookmark_scroll_y = std::cmp::min(self.bookmark_scroll_y + y, max - self.inside.height as i32);
+                    self.bookmark_scroll_y =
+                        std::cmp::min(self.bookmark_scroll_y + y, max - self.inside.height as i32);
                 }
             }
         }
@@ -202,7 +198,6 @@ impl Ui {
         self.scroll(y, max, active_panel);
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -216,9 +211,17 @@ mod tests {
         ui.inside.height = 30;
 
         ui.scroll_abs(60, 60, &ActivePanel::Main);
-        assert!(ui.scroll_y + ui.cursor_y == 59, "Scrolled to index {}", ui.scroll_y + ui.cursor_y);
+        assert!(
+            ui.scroll_y + ui.cursor_y == 59,
+            "Scrolled to index {}",
+            ui.scroll_y + ui.cursor_y
+        );
 
         ui.scroll(1, 60, &ActivePanel::Main);
-        assert!(ui.scroll_y + ui.cursor_y == 59, "Scrolled to index {}", ui.scroll_y + ui.cursor_y);
+        assert!(
+            ui.scroll_y + ui.cursor_y == 59,
+            "Scrolled to index {}",
+            ui.scroll_y + ui.cursor_y
+        );
     }
 }

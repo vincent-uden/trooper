@@ -1,20 +1,23 @@
 use std::{
     collections::HashMap,
-    env::current_dir,
     ffi::OsStr,
     fs::{self, DirEntry, File},
     io::{self, BufReader},
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
+use configparser::ini::Ini;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fs_extra::dir::CopyOptions;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
+use strum::EnumString;
 use tui::{backend::Backend, Terminal};
 
 use crate::ui::Ui;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, EnumString, PartialEq, Eq)]
 enum AppActions {
     MoveDown,
     MoveUp,
@@ -90,42 +93,8 @@ pub struct App {
 
 impl App {
     pub fn new(title: String, current_dir: &Path) -> App {
-        let mut bindings = HashMap::new();
-        bindings.insert(str_to_key_events("j"), AppActions::MoveDown);
-        bindings.insert(str_to_key_events("k"), AppActions::MoveUp);
-        bindings.insert(str_to_key_events("h"), AppActions::MoveUpDir);
-        bindings.insert(str_to_key_events("l"), AppActions::EnterDir);
-        bindings.insert(str_to_key_events("q"), AppActions::Quit);
-        bindings.insert(str_to_key_events("gg"), AppActions::MoveToTop);
-        bindings.insert(str_to_key_events("G"), AppActions::MoveToBottom);
-        bindings.insert(str_to_key_events("yy"), AppActions::CopyFiles);
-        bindings.insert(str_to_key_events("dd"), AppActions::CutFiles);
-        bindings.insert(str_to_key_events("p"), AppActions::PasteFiles);
-        bindings.insert(str_to_key_events(":"), AppActions::OpenCommandMode);
-        bindings.insert(str_to_key_events("b"), AppActions::ToggleBookmark);
-        bindings.insert(
-            vec![
-                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
-                KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL),
-            ],
-            AppActions::MoveToLeftPanel,
-        );
-        bindings.insert(
-            vec![
-                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
-                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL),
-            ],
-            AppActions::MoveToRightPanel,
-        );
-        bindings.insert(
-            vec![KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL)],
-            AppActions::MoveToLeftPanel,
-        );
-        bindings.insert(
-            vec![KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)],
-            AppActions::MoveToRightPanel,
-        );
-        bindings.insert(str_to_key_events("z"), AppActions::ToggleHiddenFiles);
+        let config_path = home::home_dir().unwrap().join(".config/trooper/config.ini");
+        let bindings = read_config(&config_path).unwrap();
 
         let mut commands = HashMap::new();
         commands.insert(String::from("delete"), AppActions::DeleteFile);
@@ -141,10 +110,7 @@ impl App {
             should_quit: false,
             current_dir: Box::<PathBuf>::new(current_dir.to_path_buf().clone()),
             dir_contents: Vec::new(),
-            bookmarks: vec![Bookmark {
-                name: String::from("Nextcloud"),
-                path: Box::<PathBuf>::new("/home/vincent/Nextcloud".into()),
-            }],
+            bookmarks: vec![],
             ui: Ui::new(current_dir.to_str().unwrap()),
             last_key: KeyEvent::new(KeyCode::Null, KeyModifiers::empty()),
             key_chord: Vec::new(),
@@ -647,13 +613,138 @@ fn str_to_char_arr(s: &str) -> Vec<char> {
     for c in s.chars() {
         output.push(c);
     }
-    output
+    return output;
 }
 
 fn str_to_key_events(s: &str) -> Vec<KeyEvent> {
     let mut output = Vec::with_capacity(s.len());
-    for c in s.chars() {
-        output.push(KeyEvent::new(KeyCode::Char(c), KeyModifiers::empty()));
+
+    let re = Regex::new(r"<[.|[^<>]]+>|.").unwrap();
+
+    for cap in re.captures_iter(s) {
+        let symbol = &cap[0];
+
+        if symbol.len() == 1 {
+            output.push(KeyEvent::new(
+                KeyCode::Char(symbol.chars().next().unwrap()),
+                KeyModifiers::empty(),
+            ));
+        } else if symbol == "<lt>" {
+            output.push(KeyEvent::new(KeyCode::Char('<'), KeyModifiers::empty()));
+        } else if symbol == "<gt>" {
+            output.push(KeyEvent::new(KeyCode::Char('>'), KeyModifiers::empty()));
+        } else if symbol == "<Space>" {
+            output.push(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()));
+        } else if symbol.len() == 5 {
+            if symbol.chars().nth(1).unwrap() == 'C' || symbol.chars().nth(1).unwrap() == 'c' {
+                output.push(KeyEvent::new(
+                    KeyCode::Char(symbol.chars().nth(3).unwrap()),
+                    KeyModifiers::CONTROL,
+                ));
+            }
+        }
     }
-    output
+
+    return output;
+}
+
+fn read_config(p: &Path) -> Result<HashMap<Vec<KeyEvent>, AppActions>, io::Error> {
+    let mut output = HashMap::new();
+
+    let mut config = Ini::new();
+    let mut default = config.defaults();
+    default.delimiters = vec!['='];
+    default.case_sensitive = true;
+    config.load_defaults(default);
+
+    let user_map = if p.exists() {
+        match config.read(fs::read_to_string(p)?) {
+            Err(msg) => return Err(io::Error::new(io::ErrorKind::Other, msg)),
+            Ok(inner) => inner,
+        }
+    } else {
+        HashMap::new()
+    };
+
+    let default_map = match config.read(String::from(include_str!("../assets/default_config.ini")))
+    {
+        Err(msg) => return Err(io::Error::new(io::ErrorKind::Other, msg)),
+        Ok(inner) => inner,
+    };
+
+    for (k, v) in default_map["keybindings"].iter().chain(
+        user_map
+            .get("keybindings")
+            .unwrap_or(&HashMap::new())
+            .iter(),
+    ) {
+        if let Some(v_str) = v {
+            if let Ok(action) = AppActions::from_str(v_str) {
+                output.insert(str_to_key_events(&k), action);
+            }
+        }
+    }
+
+    return Ok(output);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, path::PathBuf, str::FromStr};
+
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    use super::{read_config, str_to_key_events, AppActions};
+
+    #[test]
+    fn reading_default_config_gives_default_bindings() {
+        let mut bindings = HashMap::new();
+        bindings.insert(str_to_key_events("j"), AppActions::MoveDown);
+        bindings.insert(str_to_key_events("k"), AppActions::MoveUp);
+        bindings.insert(str_to_key_events("h"), AppActions::MoveUpDir);
+        bindings.insert(str_to_key_events("l"), AppActions::EnterDir);
+        bindings.insert(str_to_key_events("q"), AppActions::Quit);
+        bindings.insert(str_to_key_events("gg"), AppActions::MoveToTop);
+        bindings.insert(str_to_key_events("G"), AppActions::MoveToBottom);
+        bindings.insert(str_to_key_events("yy"), AppActions::CopyFiles);
+        bindings.insert(str_to_key_events("dd"), AppActions::CutFiles);
+        bindings.insert(str_to_key_events("p"), AppActions::PasteFiles);
+        bindings.insert(str_to_key_events(":"), AppActions::OpenCommandMode);
+        bindings.insert(str_to_key_events("b"), AppActions::ToggleBookmark);
+        bindings.insert(
+            vec![
+                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL),
+            ],
+            AppActions::MoveToLeftPanel,
+        );
+        bindings.insert(
+            vec![
+                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL),
+            ],
+            AppActions::MoveToRightPanel,
+        );
+        bindings.insert(
+            vec![KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL)],
+            AppActions::MoveToLeftPanel,
+        );
+        bindings.insert(
+            vec![KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)],
+            AppActions::MoveToRightPanel,
+        );
+        bindings.insert(str_to_key_events("z"), AppActions::ToggleHiddenFiles);
+
+        let config_path = PathBuf::from_str("./assets/default_config.ini").unwrap();
+        let generated_bindings = match read_config(&config_path) {
+            Ok(x) => x,
+            Err(msg) => panic!("{}", msg),
+        };
+
+        for (k, v) in generated_bindings.iter() {
+            assert!(bindings.contains_key(k), "{:?}", k);
+
+            assert!(bindings.get(k).unwrap() == v);
+        }
+    }
 }
