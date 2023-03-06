@@ -9,6 +9,7 @@ authors = ["Vincent Udén <vincentuden@gmail.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+clap = { version = "4.1.8", features = ["derive"] }
 configparser = "3.0.2"
 crossterm = "0.25.0"
 dirs = "4.0.0"
