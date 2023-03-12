@@ -2,9 +2,11 @@ mod app;
 mod ui;
 
 use std::{
-    env::{self, set_current_dir}, io,
+    env::{self, set_current_dir},
+    fs, io,
     path::{Path, PathBuf},
-    time::{Duration, Instant}, str::FromStr, fs,
+    str::FromStr,
+    time::{Duration, Instant},
 };
 
 use app::App;
@@ -52,7 +54,7 @@ fn main() -> Result<(), io::Error> {
     match args.choose_dir {
         Some(p) => {
             fs::write(p.as_path(), app.current_dir.to_str().unwrap_or("./"))?;
-        },
+        }
         None => {}
     }
 

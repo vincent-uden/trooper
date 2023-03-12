@@ -59,6 +59,13 @@ pub enum ActivePanel {
     Bookmarks,
 }
 
+#[derive(PartialEq, Clone, Copy)]
+enum ActiveMode {
+    Normal,
+    Command,
+    Visual,
+}
+
 pub struct App {
     pub title: String,
 
@@ -77,13 +84,13 @@ pub struct App {
     bindings: HashMap<Vec<KeyEvent>, AppActions>,
     commands: HashMap<String, AppActions>,
     active_panel: ActivePanel,
+    active_mode: ActiveMode,
     // ---
     yank_reg: Box<PathBuf>,
     yank_mode: Option<YankMode>,
 
     bookmark_store: Box<PathBuf>,
 
-    command_mode: bool,
     command_buffer: String,
     command_buffer_tmp: String,
     command_history: Vec<String>,
@@ -119,6 +126,7 @@ impl App {
             bindings,
             commands,
             active_panel: ActivePanel::Main,
+            active_mode: ActiveMode::Normal,
             yank_reg: Box::<PathBuf>::new("/tmp/rust_fm_yank.txt".into()),
             yank_mode: None,
             bookmark_store: Box::<PathBuf>::new(
@@ -126,7 +134,6 @@ impl App {
                     .unwrap_or(Path::new("/tmp/").to_path_buf())
                     .join(".trooper/bookmarks.txt"),
             ),
-            command_mode: false,
             command_buffer: String::from(""),
             command_buffer_tmp: String::from(""),
             command_history: Vec::new(),
@@ -170,22 +177,25 @@ impl App {
         self.key_chord.push(key);
         let mut matched = true;
 
-        if self.command_mode {
-            match key.code {
+        match self.active_mode {
+            ActiveMode::Normal => {
+                // Figure out some way to do this shit with borrowing
+                let maybe_action = self.get_binding();
+                match maybe_action {
+                    Some(action) => {
+                        self.handle_action(action, vec![]);
+                    }
+                    None => matched = false,
+                }
+            }
+            ActiveMode::Command => match key.code {
                 KeyCode::Char(c) => self.command_buffer.push(c),
                 _ => {}
-            }
-        } else {
-            // Figure out some way to do this shit with borrowing
-            let maybe_action = self.get_binding();
-            match maybe_action {
-                Some(action) => {
-                    self.handle_action(action, vec![]);
-                }
-                None => matched = false,
-            }
+            },
+            ActiveMode::Visual => todo!(),
         }
 
+        // TODO: How does this work when in visual mode
         if matched {
             self.key_chord.clear();
         } else {
@@ -234,7 +244,7 @@ impl App {
             self.current_dir.to_str().unwrap(),
             &self.bookmarks,
             &self.dir_contents,
-            self.command_mode,
+            self.active_mode == ActiveMode::Command,
             &self.command_buffer,
             &self.active_panel,
         )
@@ -419,7 +429,7 @@ impl App {
                 AppActions::PasteFiles => self.paste_yanked_files(),
                 AppActions::OpenCommandMode => {
                     self.command_buffer = String::from("");
-                    self.command_mode = true;
+                    self.active_mode = ActiveMode::Command;
                 }
                 AppActions::DeleteFile => self.delete_files(selected_paths),
                 AppActions::CreateBookmark => self.create_bookmark(),
@@ -467,7 +477,7 @@ impl App {
                 },
                 AppActions::OpenCommandMode => {
                     self.command_buffer = String::from("");
-                    self.command_mode = true;
+                    self.active_mode = ActiveMode::Command;
                 }
                 AppActions::MoveToRightPanel => {
                     self.active_panel = ActivePanel::Main;
@@ -482,47 +492,57 @@ impl App {
                     self.create_dir(arg);
                 }
                 self.update_dir_contents();
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 
     pub(crate) fn on_esc(&mut self) {
-        if self.command_mode {
-            self.command_mode = false;
-            self.command_buffer.clear();
+        match self.active_mode {
+            ActiveMode::Command => {
+                self.active_mode = ActiveMode::Normal;
+                self.command_buffer.clear();
+            }
+            _ => {}
         }
     }
 
     pub(crate) fn on_enter(&mut self) {
-        if self.command_mode {
-            let words: Vec<&str> = self.command_buffer.split(" ").collect();
+        match self.active_mode {
+            ActiveMode::Command => {
+                let words: Vec<&str> = self.command_buffer.split(" ").collect();
 
-            if let Some(cmd) = words.get(0) {
-                match self.commands.get(*cmd) {
-                    Some(action) => {
-                        let args = words[1..].into_iter().map(|x| String::from(*x)).collect();
-                        self.handle_action(*action, args);
+                if let Some(cmd) = words.get(0) {
+                    match self.commands.get(*cmd) {
+                        Some(action) => {
+                            let args = words[1..].into_iter().map(|x| String::from(*x)).collect();
+                            self.handle_action(*action, args);
+                        }
+                        None => (),
                     }
-                    None => (),
-                }
 
-                self.command_history.push(self.command_buffer.clone());
-                self.on_esc();
+                    self.command_history.push(self.command_buffer.clone());
+                    self.on_esc();
+                }
             }
+            _ => {}
         }
     }
 
     pub(crate) fn on_backspace(&mut self) {
-        if self.command_mode {
-            if self.command_buffer.len() > 0 {
-                self.command_buffer.pop();
+        match self.active_mode {
+            ActiveMode::Command => {
+                if self.command_buffer.len() > 0 {
+                    self.command_buffer.pop();
+                }
             }
+            _ => {}
         }
     }
 
     pub(crate) fn on_down(&mut self) {
-        if self.command_mode {
+        match self.active_mode {
+            ActiveMode::Command => {
             if self.command_index > 0 {
                 self.command_index = self.command_index - 1;
                 self.command_buffer = self.command_history
@@ -532,11 +552,14 @@ impl App {
                 self.command_index = -1;
                 self.command_buffer = self.command_buffer_tmp.clone();
             }
+        },
+        _ => {}
         }
     }
 
     pub(crate) fn on_up(&mut self) {
-        if self.command_mode {
+        match self.active_mode {
+            ActiveMode::Command => {
             if self.command_index + 1 < self.command_history.len() as i32 {
                 if self.command_index == -1 {
                     self.command_buffer_tmp = self.command_buffer.clone();
@@ -547,7 +570,9 @@ impl App {
                     [(self.command_history.len() as i32 - self.command_index - 1) as usize]
                     .clone();
             }
-        }
+        },
+        _ => {}
+    }
     }
 
     fn create_bookmark(&mut self) {
@@ -624,7 +649,7 @@ impl App {
             Ok(p) => {
                 let new_path = self.current_dir.join(name);
                 fs::create_dir_all(new_path);
-            },
+            }
             Err(_) => {}
         }
     }
