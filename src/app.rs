@@ -38,6 +38,7 @@ enum AppActions {
     MoveToRightPanel,
     MoveEntry,
     ToggleHiddenFiles,
+    CreateDir,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -104,6 +105,7 @@ impl App {
         commands.insert(String::from("bm"), AppActions::CreateBookmark);
         commands.insert(String::from("dbm"), AppActions::DeleteBookmark);
         commands.insert(String::from("mv"), AppActions::MoveEntry);
+        commands.insert(String::from("mkdir"), AppActions::CreateDir);
 
         App {
             title,
@@ -473,6 +475,16 @@ impl App {
                 _ => {}
             },
         }
+
+        match action {
+            AppActions::CreateDir => {
+                for arg in &args {
+                    self.create_dir(arg);
+                }
+                self.update_dir_contents();
+            },
+            _ => {},
+        }
     }
 
     pub(crate) fn on_esc(&mut self) {
@@ -605,6 +617,16 @@ impl App {
             .collect();
 
         return contents;
+    }
+
+    fn create_dir(&self, name: &str) {
+        match PathBuf::from_str(name) {
+            Ok(p) => {
+                let new_path = self.current_dir.join(name);
+                fs::create_dir_all(new_path);
+            },
+            Err(_) => {}
+        }
     }
 }
 
