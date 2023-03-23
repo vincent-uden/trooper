@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{
     collections::HashMap,
     ffi::OsStr,
@@ -60,12 +61,20 @@ pub enum ActivePanel {
     Bookmarks,
 }
 
-#[derive(PartialEq, Clone, Copy)]
-enum ActiveMode {
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum ActiveMode {
     Normal,
     Command,
     Visual,
 }
+
+impl fmt::Display for ActiveMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = format!("{:?}", self).to_uppercase();
+        write!(f, "{}", name)
+    }
+}
+
 
 pub struct App {
     pub title: String,
@@ -237,7 +246,7 @@ impl App {
                 Some(a) => Some(a.clone()),
                 None => None,
             },
-            ActiveMode::Command => None
+            ActiveMode::Command => None,
         }
     }
 
@@ -265,6 +274,7 @@ impl App {
             self.active_mode == ActiveMode::Command,
             &self.command_buffer,
             &self.active_panel,
+            &self.active_mode,
         )
     }
 
@@ -565,6 +575,9 @@ impl App {
 
     pub(crate) fn on_esc(&mut self) {
         match self.active_mode {
+            ActiveMode::Visual => {
+                self.active_mode = ActiveMode::Normal;
+            },
             ActiveMode::Command => {
                 self.active_mode = ActiveMode::Normal;
                 self.command_buffer.clear();
@@ -582,6 +595,9 @@ impl App {
                     match self.commands.get(*cmd) {
                         Some(action) => {
                             let args = words[1..].into_iter().map(|x| String::from(*x)).collect();
+                            /* TODO: This is kind of inconsistent behaviour. Should there be a
+                             * third command_handle_action?
+                             */
                             self.normal_handle_action(*action, args);
                         }
                         None => (),

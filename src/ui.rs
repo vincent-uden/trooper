@@ -1,4 +1,4 @@
-use std::{fs::DirEntry, io};
+use std::{fs::DirEntry, io, hash::Hash};
 
 use tui::{
     backend::Backend,
@@ -9,7 +9,7 @@ use tui::{
     Terminal,
 };
 
-use crate::app::{ActivePanel, Bookmark};
+use crate::app::{ActiveMode, ActivePanel, Bookmark};
 
 pub struct Ui {
     pub cursor_y: i32,
@@ -17,6 +17,9 @@ pub struct Ui {
 
     pub bookmark_y: i32,
     pub bookmark_scroll_y: i32,
+
+    /* This position can be off screen */
+    pub visual_intitial_y: i32,
 
     inside: Rect,
 
@@ -34,6 +37,8 @@ impl Ui {
 
             bookmark_y: 0,
             bookmark_scroll_y: 0,
+
+            visual_intitial_y: 0,
 
             inside: Rect::new(0, 0, 0, 0),
             layout: Layout::default()
@@ -53,6 +58,7 @@ impl Ui {
         command_mode: bool,
         command_buffer: &str,
         active_panel: &ActivePanel,
+        active_mode: &ActiveMode,
     ) -> io::Result<()> {
         term.draw(|f| {
             self.layout = Layout::default()
@@ -150,6 +156,25 @@ impl Ui {
                     },
                 );
             }
+
+            let mode_style = Style::default().add_modifier(Modifier::BOLD).fg(match active_mode {
+                ActiveMode::Normal => Color::Green,
+                ActiveMode::Command => Color::Magenta,
+                ActiveMode::Visual => Color::Blue,
+            });
+            let active_mode_text = Span::styled(format!("{}", active_mode), mode_style);
+            let active_mode_line = Paragraph::new(active_mode_text)
+                .block(Block::default())
+                .wrap(Wrap { trim: true });
+            f.render_widget(
+                active_mode_line,
+                Rect {
+                    x: 2,
+                    y: size.height - 3,
+                    width: size.width - 2,
+                    height: 1,
+                },
+            )
         })?;
 
         Ok(())
