@@ -39,6 +39,7 @@ enum AppActions {
     MoveEntry,
     ToggleHiddenFiles,
     CreateDir,
+    ToggleVisualMode,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -82,6 +83,7 @@ pub struct App {
     last_key: KeyEvent,
     key_chord: Vec<KeyEvent>,
     bindings: HashMap<Vec<KeyEvent>, AppActions>,
+    visual_bindings: HashMap<Vec<KeyEvent>, AppActions>,
     commands: HashMap<String, AppActions>,
     active_panel: ActivePanel,
     active_mode: ActiveMode,
@@ -102,7 +104,7 @@ pub struct App {
 impl App {
     pub fn new(title: String, current_dir: &Path) -> App {
         let config_path = home::home_dir().unwrap().join(".config/trooper/config.ini");
-        let bindings = read_config(&config_path).unwrap();
+        let (bindings, visual_bindings) = read_config(&config_path).unwrap();
 
         let mut commands = HashMap::new();
         commands.insert(String::from("delete"), AppActions::DeleteFile);
@@ -124,6 +126,7 @@ impl App {
             last_key: KeyEvent::new(KeyCode::Null, KeyModifiers::empty()),
             key_chord: Vec::new(),
             bindings,
+            visual_bindings,
             commands,
             active_panel: ActivePanel::Main,
             active_mode: ActiveMode::Normal,
@@ -183,7 +186,16 @@ impl App {
                 let maybe_action = self.get_binding();
                 match maybe_action {
                     Some(action) => {
-                        self.handle_action(action, vec![]);
+                        self.normal_handle_action(action, vec![]);
+                    }
+                    None => matched = false,
+                }
+            }
+            ActiveMode::Visual => {
+                let maybe_action = self.get_binding();
+                match maybe_action {
+                    Some(action) => {
+                        self.visual_handle_action(action, vec![]);
                     }
                     None => matched = false,
                 }
@@ -192,7 +204,6 @@ impl App {
                 KeyCode::Char(c) => self.command_buffer.push(c),
                 _ => {}
             },
-            ActiveMode::Visual => todo!(),
         }
 
         // TODO: How does this work when in visual mode
@@ -217,9 +228,16 @@ impl App {
     }
 
     fn get_binding(&mut self) -> Option<AppActions> {
-        match self.bindings.get(&self.key_chord) {
-            Some(a) => Some(a.clone()),
-            None => None,
+        match self.active_mode {
+            ActiveMode::Normal => match self.bindings.get(&self.key_chord) {
+                Some(a) => Some(a.clone()),
+                None => None,
+            },
+            ActiveMode::Visual => match self.visual_bindings.get(&self.key_chord) {
+                Some(a) => Some(a.clone()),
+                None => None,
+            },
+            ActiveMode::Command => None
         }
     }
 
@@ -366,7 +384,7 @@ impl App {
         );
     }
 
-    fn handle_action(&mut self, action: AppActions, args: Vec<String>) {
+    fn normal_handle_action(&mut self, action: AppActions, args: Vec<String>) {
         let selected_paths = self
             .get_selected_entries()
             .iter()
@@ -449,6 +467,9 @@ impl App {
                     self.show_hidden_files = !self.show_hidden_files;
                     self.update_dir_contents();
                 }
+                AppActions::ToggleVisualMode => {
+                    self.active_mode = ActiveMode::Visual;
+                }
                 _ => {}
             },
             ActivePanel::Bookmarks => match action {
@@ -497,6 +518,51 @@ impl App {
         }
     }
 
+    fn visual_handle_action(&mut self, action: AppActions, args: Vec<String>) {
+        let selected_paths = self
+            .get_selected_entries()
+            .iter()
+            .map(|d| d.path())
+            .collect();
+        /* There's no need to check the active panel since we can only enter
+         * visual mode in the main panel
+         */
+        match action {
+            AppActions::MoveDown => {
+                self.ui
+                    .scroll(1, self.dir_contents.len() as i32, &self.active_panel)
+            }
+            AppActions::MoveUp => {
+                self.ui
+                    .scroll(-1, self.dir_contents.len() as i32, &self.active_panel)
+            }
+            AppActions::Quit => {
+                self.should_quit = true;
+            }
+            AppActions::MoveToTop => {
+                self.ui
+                    .scroll_abs(0, self.dir_contents.len() as i32, &self.active_panel)
+            }
+            AppActions::MoveToBottom => self.ui.scroll_abs(
+                self.dir_contents.len() as i32 - 1,
+                self.dir_contents.len() as i32,
+                &self.active_panel,
+            ),
+            AppActions::CopyFiles => self.copy_files(selected_paths),
+            AppActions::CutFiles => self.cut_files(selected_paths),
+            AppActions::PasteFiles => self.paste_yanked_files(),
+            AppActions::OpenCommandMode => {
+                self.command_buffer = String::from("");
+                self.active_mode = ActiveMode::Command;
+            }
+            AppActions::DeleteFile => self.delete_files(selected_paths),
+            AppActions::ToggleVisualMode => {
+                self.active_mode = ActiveMode::Normal;
+            }
+            _ => {}
+        }
+    }
+
     pub(crate) fn on_esc(&mut self) {
         match self.active_mode {
             ActiveMode::Command => {
@@ -516,7 +582,7 @@ impl App {
                     match self.commands.get(*cmd) {
                         Some(action) => {
                             let args = words[1..].into_iter().map(|x| String::from(*x)).collect();
-                            self.handle_action(*action, args);
+                            self.normal_handle_action(*action, args);
                         }
                         None => (),
                     }
@@ -543,36 +609,36 @@ impl App {
     pub(crate) fn on_down(&mut self) {
         match self.active_mode {
             ActiveMode::Command => {
-            if self.command_index > 0 {
-                self.command_index = self.command_index - 1;
-                self.command_buffer = self.command_history
-                    [(self.command_history.len() as i32 - self.command_index - 1) as usize]
-                    .clone();
-            } else if self.command_index == 0 {
-                self.command_index = -1;
-                self.command_buffer = self.command_buffer_tmp.clone();
+                if self.command_index > 0 {
+                    self.command_index = self.command_index - 1;
+                    self.command_buffer = self.command_history
+                        [(self.command_history.len() as i32 - self.command_index - 1) as usize]
+                        .clone();
+                } else if self.command_index == 0 {
+                    self.command_index = -1;
+                    self.command_buffer = self.command_buffer_tmp.clone();
+                }
             }
-        },
-        _ => {}
+            _ => {}
         }
     }
 
     pub(crate) fn on_up(&mut self) {
         match self.active_mode {
             ActiveMode::Command => {
-            if self.command_index + 1 < self.command_history.len() as i32 {
-                if self.command_index == -1 {
-                    self.command_buffer_tmp = self.command_buffer.clone();
-                }
-                self.command_index = self.command_index + 1;
+                if self.command_index + 1 < self.command_history.len() as i32 {
+                    if self.command_index == -1 {
+                        self.command_buffer_tmp = self.command_buffer.clone();
+                    }
+                    self.command_index = self.command_index + 1;
 
-                self.command_buffer = self.command_history
-                    [(self.command_history.len() as i32 - self.command_index - 1) as usize]
-                    .clone();
+                    self.command_buffer = self.command_history
+                        [(self.command_history.len() as i32 - self.command_index - 1) as usize]
+                        .clone();
+                }
             }
-        },
-        _ => {}
-    }
+            _ => {}
+        }
     }
 
     fn create_bookmark(&mut self) {
@@ -646,7 +712,7 @@ impl App {
 
     fn create_dir(&self, name: &str) {
         match PathBuf::from_str(name) {
-            Ok(p) => {
+            Ok(_) => {
                 let new_path = self.current_dir.join(name);
                 fs::create_dir_all(new_path);
             }
@@ -695,8 +761,17 @@ fn str_to_key_events(s: &str) -> Vec<KeyEvent> {
     return output;
 }
 
-fn read_config(p: &Path) -> Result<HashMap<Vec<KeyEvent>, AppActions>, io::Error> {
-    let mut output = HashMap::new();
+fn read_config(
+    p: &Path,
+) -> Result<
+    (
+        HashMap<Vec<KeyEvent>, AppActions>,
+        HashMap<Vec<KeyEvent>, AppActions>,
+    ),
+    io::Error,
+> {
+    let mut normal_bindings = HashMap::new();
+    let mut visual_bindings = HashMap::new();
 
     let mut config = Ini::new();
     let mut default = config.defaults();
@@ -719,20 +794,29 @@ fn read_config(p: &Path) -> Result<HashMap<Vec<KeyEvent>, AppActions>, io::Error
         Ok(inner) => inner,
     };
 
-    for (k, v) in default_map["keybindings"].iter().chain(
-        user_map
-            .get("keybindings")
-            .unwrap_or(&HashMap::new())
-            .iter(),
-    ) {
+    for (k, v) in default_map["normal"]
+        .iter()
+        .chain(user_map.get("normal").unwrap_or(&HashMap::new()).iter())
+    {
         if let Some(v_str) = v {
             if let Ok(action) = AppActions::from_str(v_str) {
-                output.insert(str_to_key_events(&k), action);
+                normal_bindings.insert(str_to_key_events(&k), action);
             }
         }
     }
 
-    return Ok(output);
+    for (k, v) in default_map["visual"]
+        .iter()
+        .chain(user_map.get("visual").unwrap_or(&HashMap::new()).iter())
+    {
+        if let Some(v_str) = v {
+            if let Ok(action) = AppActions::from_str(v_str) {
+                visual_bindings.insert(str_to_key_events(&k), action);
+            }
+        }
+    }
+
+    return Ok((normal_bindings, visual_bindings));
 }
 
 #[cfg(test)]
