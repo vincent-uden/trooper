@@ -5,11 +5,11 @@ use tui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::Span,
-    widgets::{Block, BorderType, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
     Terminal,
 };
 
-use crate::app::{ActivePanel, Bookmark};
+use crate::app::{ActiveMode, ActivePanel, Bookmark};
 
 pub struct Ui {
     pub cursor_y: i32,
@@ -18,12 +18,17 @@ pub struct Ui {
     pub bookmark_y: i32,
     pub bookmark_scroll_y: i32,
 
+    /* This position can be off screen */
+    pub visual_intitial_y: i32,
+
     inside: Rect,
 
     layout: Layout,
 
     pub last_name: String,
     pub bookmark_width: u16,
+
+    pub debug_msg: String,
 }
 
 impl Ui {
@@ -35,12 +40,15 @@ impl Ui {
             bookmark_y: 0,
             bookmark_scroll_y: 0,
 
+            visual_intitial_y: 0,
+
             inside: Rect::new(0, 0, 0, 0),
             layout: Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Length(15), Constraint::Min(20)]),
             last_name: String::from(start_dir),
             bookmark_width: 15,
+            debug_msg: String::new(),
         }
     }
 
@@ -53,6 +61,8 @@ impl Ui {
         command_mode: bool,
         command_buffer: &str,
         active_panel: &ActivePanel,
+        active_mode: &ActiveMode,
+        selection_start: i32,
     ) -> io::Result<()> {
         term.draw(|f| {
             self.layout = Layout::default()
@@ -108,14 +118,20 @@ impl Ui {
                 if p.file_type().unwrap().is_dir() {
                     s = s.fg(Color::Blue).add_modifier(Modifier::BOLD);
 
-                    if i == self.scroll_y + self.cursor_y && *active_panel == ActivePanel::Main {
+                    if ((i <= self.scroll_y + self.cursor_y && i >= selection_start)
+                        || (i >= self.scroll_y + self.cursor_y && i <= selection_start))
+                        && *active_panel == ActivePanel::Main
+                    {
                         s = s
                             .fg(Color::Black)
                             .bg(Color::Blue)
                             .add_modifier(Modifier::BOLD);
                     }
                 } else {
-                    if i == self.scroll_y + self.cursor_y && *active_panel == ActivePanel::Main {
+                    if ((i <= self.scroll_y + self.cursor_y && i >= selection_start)
+                        || (i >= self.scroll_y + self.cursor_y && i <= selection_start))
+                        && *active_panel == ActivePanel::Main
+                    {
                         s = s.fg(Color::Black).bg(Color::Blue);
                     }
                 }
@@ -139,6 +155,18 @@ impl Ui {
             f.render_widget(main_block, chunks[1]);
             f.render_widget(item_list.clone(), inner_main_block);
 
+            let debug_text = Span::styled(&self.debug_msg, Style::default());
+            let debug_line = Paragraph::new(debug_text);
+            f.render_widget(
+                debug_line,
+                Rect {
+                    x: ((size.width as usize) - self.debug_msg.len() - 2) as u16,
+                    y: 2,
+                    width: self.debug_msg.len() as u16,
+                    height: 1,
+                },
+            );
+
             if command_mode {
                 f.render_widget(
                     cmd_line,
@@ -150,6 +178,25 @@ impl Ui {
                     },
                 );
             }
+
+            let mode_style = Style::default().add_modifier(Modifier::BOLD).fg(match active_mode {
+                ActiveMode::Normal => Color::Green,
+                ActiveMode::Command => Color::Magenta,
+                ActiveMode::Visual => Color::Blue,
+            });
+            let active_mode_text = Span::styled(format!("{}", active_mode), mode_style);
+            let active_mode_line = Paragraph::new(active_mode_text)
+                .block(Block::default())
+                .wrap(Wrap { trim: true });
+            f.render_widget(
+                active_mode_line,
+                Rect {
+                    x: 2,
+                    y: size.height - 3,
+                    width: size.width - 2,
+                    height: 1,
+                },
+            )
         })?;
 
         Ok(())
