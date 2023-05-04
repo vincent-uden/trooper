@@ -1,6 +1,7 @@
+use core::fmt;
 use std::{
     collections::HashMap,
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     fs::{self, DirEntry, File},
     io::{self, BufReader},
     path::{Path, PathBuf},
@@ -60,12 +61,21 @@ pub enum ActivePanel {
     Bookmarks,
 }
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
+
 pub enum ActiveMode {
     Normal,
     Command,
     Visual,
 }
+
+impl fmt::Display for ActiveMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = format!("{:?}", self).to_uppercase();
+        write!(f, "{}", name)
+    }
+}
+
 
 pub struct App {
     pub title: String,
@@ -354,7 +364,7 @@ impl App {
                     dest.set_file_name(format!(
                         "{} (Copy).{}",
                         dest.file_stem().unwrap().to_str().unwrap(),
-                        dest.extension().unwrap().to_str().unwrap()
+                        dest.extension().unwrap_or(&OsString::from("")).to_str().unwrap()
                     ));
                 }
 
@@ -402,7 +412,6 @@ impl App {
             .iter()
             .map(|d| d.path())
             .collect();
-        self.ui.debug_msg = format!("{}", selected_paths.len());
         match self.active_panel {
             ActivePanel::Main => match action {
                 AppActions::MoveDown => {
@@ -545,12 +554,12 @@ impl App {
 
     pub(crate) fn on_esc(&mut self) {
         match self.active_mode {
+            ActiveMode::Visual => {
+                self.active_mode = ActiveMode::Normal;
+            },
             ActiveMode::Command => {
                 self.active_mode = ActiveMode::Normal;
                 self.command_buffer.clear();
-            }
-            ActiveMode::Visual => {
-                self.active_mode = ActiveMode::Normal;
             }
             _ => {}
         }
@@ -565,6 +574,9 @@ impl App {
                     match self.commands.get(*cmd) {
                         Some(action) => {
                             let args = words[1..].into_iter().map(|x| String::from(*x)).collect();
+                            /* TODO: This is kind of inconsistent behaviour. Should there be a
+                             * third command_handle_action?
+                             */
                             self.handle_action(*action, args);
                         }
                         None => (),
@@ -843,7 +855,7 @@ mod tests {
         bindings.insert(str_to_key_events("v"), AppActions::ToggleVisualMode);
 
         let config_path = PathBuf::from_str("./assets/default_config.ini").unwrap();
-        let (normal_bindings, visual_bindings) = match read_config(&config_path) {
+        let (normal_bindings, _) = match read_config(&config_path) {
             Ok(x) => x,
             Err(msg) => panic!("{}", msg),
         };

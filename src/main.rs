@@ -2,10 +2,9 @@ mod app;
 mod ui;
 
 use std::{
-    env::{self, set_current_dir},
+    env,
     fs, io,
     path::{Path, PathBuf},
-    str::FromStr,
     time::{Duration, Instant},
 };
 
