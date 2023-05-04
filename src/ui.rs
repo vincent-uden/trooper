@@ -9,7 +9,7 @@ use tui::{
     Terminal,
 };
 
-use crate::app::{ActivePanel, Bookmark};
+use crate::app::{ActiveMode, ActivePanel, Bookmark};
 
 pub struct Ui {
     pub cursor_y: i32,
@@ -24,6 +24,8 @@ pub struct Ui {
 
     pub last_name: String,
     pub bookmark_width: u16,
+
+    pub debug_msg: String,
 }
 
 impl Ui {
@@ -41,6 +43,7 @@ impl Ui {
                 .constraints([Constraint::Length(15), Constraint::Min(20)]),
             last_name: String::from(start_dir),
             bookmark_width: 15,
+            debug_msg: String::new(),
         }
     }
 
@@ -53,6 +56,8 @@ impl Ui {
         command_mode: bool,
         command_buffer: &str,
         active_panel: &ActivePanel,
+        active_mode: &ActiveMode,
+        selection_start: i32,
     ) -> io::Result<()> {
         term.draw(|f| {
             self.layout = Layout::default()
@@ -108,14 +113,20 @@ impl Ui {
                 if p.file_type().unwrap().is_dir() {
                     s = s.fg(Color::Blue).add_modifier(Modifier::BOLD);
 
-                    if i == self.scroll_y + self.cursor_y && *active_panel == ActivePanel::Main {
+                    if ((i <= self.scroll_y + self.cursor_y && i >= selection_start)
+                        || (i >= self.scroll_y + self.cursor_y && i <= selection_start))
+                        && *active_panel == ActivePanel::Main
+                    {
                         s = s
                             .fg(Color::Black)
                             .bg(Color::Blue)
                             .add_modifier(Modifier::BOLD);
                     }
                 } else {
-                    if i == self.scroll_y + self.cursor_y && *active_panel == ActivePanel::Main {
+                    if ((i <= self.scroll_y + self.cursor_y && i >= selection_start)
+                        || (i >= self.scroll_y + self.cursor_y && i <= selection_start))
+                        && *active_panel == ActivePanel::Main
+                    {
                         s = s.fg(Color::Black).bg(Color::Blue);
                     }
                 }
@@ -138,6 +149,18 @@ impl Ui {
             f.render_widget(bookmark_list.clone(), chunks[0]);
             f.render_widget(main_block, chunks[1]);
             f.render_widget(item_list.clone(), inner_main_block);
+
+            let debug_text = Span::styled(&self.debug_msg, Style::default());
+            let debug_line = Paragraph::new(debug_text);
+            f.render_widget(
+                debug_line,
+                Rect {
+                    x: ((size.width as usize) - self.debug_msg.len() - 2) as u16,
+                    y: 2,
+                    width: self.debug_msg.len() as u16,
+                    height: 1,
+                },
+            );
 
             if command_mode {
                 f.render_widget(
