@@ -1,4 +1,4 @@
-Trooper 0.3.1
+Trooper 0.4.0
 ---
 
 Trooper is a [tui](https://en.wikipedia.org/wiki/Text-based\_user\_interface) file manager with VIM key bindings inspired by the great [ranger](https://github.com/ranger/ranger).
@@ -16,9 +16,9 @@ The goal of trooper is to adhere to the unix philosophy. Do one thing and do it 
 - Persistence for bookmarks and files in the yank register
 - Cross-platform support (Linux, Windows and probably Mac)
 - Configuration file for keybindings
+- Visual mode for operating on multiple files at once
 
 ### Planned
-- Visual mode for operating on multiple files at once
 - VIM-like repeats of commands (4dd would cut 4 files at once for example)
 - Changing the working directory of the shell when exiting trooper
 
@@ -34,7 +34,7 @@ Trooper will look for a config file located at `.config/trooper/config.ini` in y
 The config format is a simple ini format with `=` accepted as the only delimiter. It maps sequences of keystrokes to actions in the program. The default configuration is located in the `/assets` directory. It is this configuration which is overwritten by bindings in the user condfig file.
 
 ### Syntax
-All keybindsings are located under the section denoted `[keybindings]` in the ini file.
+All keybindings are located under the two sections denoted `[normal]` and `[visual]` in the ini file. Each section specifies the actions which will be availible and through what keybinding they're accessed.
 
 Most keys are mapped simply by the character on the keyboard. Some special keys instead have to be escaped with the same syntax as in a Vim config. The escaped versions follow below:
 ```
