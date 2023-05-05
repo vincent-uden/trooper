@@ -63,6 +63,7 @@ impl Ui {
         active_panel: &ActivePanel,
         active_mode: &ActiveMode,
         selection_start: i32,
+        key_chord: &String,
     ) -> io::Result<()> {
         term.draw(|f| {
             self.layout = Layout::default()
@@ -179,12 +180,15 @@ impl Ui {
                 );
             }
 
-            let mode_style = Style::default().add_modifier(Modifier::BOLD).fg(match active_mode {
-                ActiveMode::Normal => Color::Green,
-                ActiveMode::Command => Color::Magenta,
-                ActiveMode::Visual => Color::Blue,
-            });
+            let mode_style = Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(match active_mode {
+                    ActiveMode::Normal => Color::Green,
+                    ActiveMode::Command => Color::Magenta,
+                    ActiveMode::Visual => Color::Blue,
+                });
             let active_mode_text = Span::styled(format!("{}", active_mode), mode_style);
+            let mode_width = active_mode_text.width() as u16;
             let active_mode_line = Paragraph::new(active_mode_text)
                 .block(Block::default())
                 .wrap(Wrap { trim: true });
@@ -193,7 +197,22 @@ impl Ui {
                 Rect {
                     x: 2,
                     y: size.height - 3,
-                    width: size.width - 2,
+                    width: mode_width,
+                    height: 1,
+                },
+            );
+
+            let chord_text = Span::styled(key_chord, Style::default());
+            let chord_width = chord_text.width() as u16;
+            let chord_line = Paragraph::new(chord_text)
+                .block(Block::default())
+                .wrap(Wrap { trim: true });
+            f.render_widget(
+                chord_line,
+                Rect {
+                    x: size.width - chord_width - 2,
+                    y: size.height - 3,
+                    width: chord_width,
                     height: 1,
                 },
             )

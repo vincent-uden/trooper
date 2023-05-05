@@ -76,7 +76,6 @@ impl fmt::Display for ActiveMode {
     }
 }
 
-
 pub struct App {
     pub title: String,
 
@@ -275,6 +274,7 @@ impl App {
         if self.active_mode == ActiveMode::Normal {
             self.selection_start = self.ui.scroll_y + self.ui.cursor_y;
         }
+        let disp_chord = key_events_to_string(&self.key_chord);
         self.ui.draw_app(
             term,
             self.current_dir.to_str().unwrap(),
@@ -285,6 +285,7 @@ impl App {
             &self.active_panel,
             &self.active_mode,
             self.selection_start,
+            &disp_chord,
         )
     }
 
@@ -337,7 +338,8 @@ impl App {
         if !&self.dir_contents.is_empty() {
             let selection_start = self.selection_start as usize;
             let selection_end = (self.ui.scroll_y + self.ui.cursor_y) as usize;
-            return &self.dir_contents[std::cmp::min(selection_end, selection_start)..=std::cmp::max(selection_end, selection_start)];
+            return &self.dir_contents[std::cmp::min(selection_end, selection_start)
+                ..=std::cmp::max(selection_end, selection_start)];
         } else {
             return &[];
         }
@@ -364,7 +366,10 @@ impl App {
                     dest.set_file_name(format!(
                         "{} (Copy).{}",
                         dest.file_stem().unwrap().to_str().unwrap(),
-                        dest.extension().unwrap_or(&OsString::from("")).to_str().unwrap()
+                        dest.extension()
+                            .unwrap_or(&OsString::from(""))
+                            .to_str()
+                            .unwrap()
                     ));
                 }
 
@@ -471,7 +476,7 @@ impl App {
                 AppActions::CutFiles => {
                     self.cut_files(selected_paths);
                     self.active_mode = ActiveMode::Normal;
-                    }
+                }
                 AppActions::PasteFiles => self.paste_yanked_files(),
                 AppActions::OpenCommandMode => {
                     self.command_buffer = String::from("");
@@ -556,7 +561,7 @@ impl App {
         match self.active_mode {
             ActiveMode::Visual => {
                 self.active_mode = ActiveMode::Normal;
-            },
+            }
             ActiveMode::Command => {
                 self.active_mode = ActiveMode::Normal;
                 self.command_buffer.clear();
@@ -742,6 +747,24 @@ fn str_to_key_events(s: &str) -> Vec<KeyEvent> {
                     KeyModifiers::CONTROL,
                 ));
             }
+        }
+    }
+
+    return output;
+}
+
+fn key_events_to_string(key_seq: &Vec<KeyEvent>) -> String {
+    let mut output = String::new();
+    for ke in key_seq {
+        if ke.modifiers.intersects(KeyModifiers::CONTROL) {
+            output.push('^');
+        }
+
+        match ke.code {
+            KeyCode::Char(c) => {
+                output.push(c);
+            }
+            _ => {}
         }
     }
 

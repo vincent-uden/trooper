@@ -2,8 +2,7 @@ mod app;
 mod ui;
 
 use std::{
-    env,
-    fs, io,
+    env, fs, io,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
