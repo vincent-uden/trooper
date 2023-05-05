@@ -2,12 +2,13 @@ mod app;
 mod ui;
 
 use std::{
-    env, io,
-    path::Path,
+    env, fs, io,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
 use app::App;
+use clap::Parser;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture, Event},
     execute,
@@ -18,7 +19,16 @@ use tui::{
     Terminal,
 };
 
+#[derive(Parser, Debug)]
+#[command(author="Vincent Udén", version=env!("CARGO_PKG_VERSION"), about="A terminal file manager")]
+struct Args {
+    #[arg(long, help = "Output the last visited directory to a given file")]
+    choose_dir: Option<PathBuf>,
+}
+
 fn main() -> Result<(), io::Error> {
+    let args = Args::parse();
+
     enable_raw_mode()?;
 
     let mut stdout = io::stdout();
@@ -29,7 +39,7 @@ fn main() -> Result<(), io::Error> {
     let p = env::current_dir().unwrap_or(Path::new("/").to_path_buf());
     let mut app = App::new(String::from("File Manager"), &p);
     app.init();
-    run_app(&mut terminal, app, Duration::from_millis(100))?;
+    run_app(&mut terminal, &mut app, Duration::from_millis(100))?;
 
     disable_raw_mode()?;
     execute!(
@@ -39,12 +49,19 @@ fn main() -> Result<(), io::Error> {
     )?;
     terminal.show_cursor()?;
 
+    match args.choose_dir {
+        Some(p) => {
+            fs::write(p.as_path(), app.current_dir.to_str().unwrap_or("./"))?;
+        }
+        None => {}
+    }
+
     Ok(())
 }
 
 fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
-    mut app: App,
+    app: &mut App,
     tick_rate: Duration,
 ) -> io::Result<()> {
     let mut last_tick = Instant::now();
