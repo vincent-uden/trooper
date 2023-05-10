@@ -234,9 +234,10 @@ impl Ui {
                         self.scroll_y = 0;
                     }
                 } else if self.cursor_y >= self.inside.height as i32 {
+                    let diff = self.scroll_y + self.cursor_y - self.inside.height as i32 + 1;
                     self.cursor_y = self.inside.height as i32 - 1;
                     self.scroll_y =
-                        std::cmp::min(self.scroll_y + y, max - self.inside.height as i32);
+                        std::cmp::min(diff, max - self.inside.height as i32);
                 }
             }
             ActivePanel::Bookmarks => {

@@ -429,8 +429,9 @@ impl App {
                 }
                 AppActions::MoveUpDir => {
                     self.move_up_dir();
+                    let index = self.find_name(self.ui.last_name.clone()).unwrap_or(0);
                     self.ui.scroll_abs(
-                        self.find_name(self.ui.last_name.clone()).unwrap_or(0),
+                        index,
                         self.dir_contents.len() as i32,
                         &self.active_panel,
                     );
@@ -441,6 +442,7 @@ impl App {
                         .to_str()
                         .unwrap()
                         .to_string();
+                    self.ui.debug_msg = format!("{}", index);
                 }
                 AppActions::EnterDir => {
                     if self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize]
