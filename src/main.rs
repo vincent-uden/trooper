@@ -14,6 +14,13 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use log::LevelFilter;
+use log4rs::{
+    append::file::FileAppender,
+    config::{Appender, Root},
+    encode::pattern::PatternEncoder,
+    Config,
+};
 use tui::{
     backend::{Backend, CrosstermBackend},
     Terminal,
@@ -28,6 +35,20 @@ struct Args {
 
 fn main() -> Result<(), io::Error> {
     let args = Args::parse();
+
+    let logfile = FileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new("{d} [{l}] {m}\n")))
+        .append(false)
+        .build("/tmp/trooper_log.txt")?;
+
+    let log_config = Config::builder()
+        .appender(Appender::builder().build("logfile", Box::new(logfile)))
+        .build(Root::builder().appender("logfile").build(LevelFilter::Info))
+        .unwrap();
+
+    log4rs::init_config(log_config).unwrap();
+
+    log::info!("Starting trooper");
 
     enable_raw_mode()?;
 

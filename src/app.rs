@@ -362,29 +362,38 @@ impl App {
                 let mut dest = dest_dir.join(p.file_name().unwrap());
                 let md = fs::metadata(&p).unwrap();
 
-                while dest.exists() {
-                    dest.set_file_name(format!(
-                        "{} (Copy).{}",
-                        dest.file_stem().unwrap().to_str().unwrap(),
-                        dest.extension()
-                            .unwrap_or(&OsString::from(""))
-                            .to_str()
-                            .unwrap()
-                    ));
-                }
-
                 if md.is_dir() {
-                    let copy_options = CopyOptions::new();
-                    let copy_success = fs_extra::dir::copy(&p, dest, &copy_options);
+                    while dest.exists() {
+                        dest.set_file_name(format!(
+                            "{} (Copy)",
+                            dest.file_stem().unwrap().to_str().unwrap(),
+                        ));
+                    }
+                    let mut copy_options = CopyOptions::new();
+                    copy_options.copy_inside = true;
+                    let copy_success = fs_extra::dir::copy(&p, &dest, &copy_options);
 
-                    if let Ok(_) = copy_success {
-                        if let Some(ym) = self.yank_mode {
-                            if ym == YankMode::Cutting {
-                                fs::remove_dir_all(&p).unwrap();
+                    match copy_success {
+                        Ok(_) => {
+                            if let Some(ym) = self.yank_mode {
+                                if ym == YankMode::Cutting {
+                                    fs::remove_dir_all(&p).unwrap();
+                                }
                             }
                         }
+                        Err(_) => {}
                     }
                 } else if md.is_file() {
+                    while dest.exists() {
+                        dest.set_file_name(format!(
+                            "{} (Copy).{}",
+                            dest.file_stem().unwrap().to_str().unwrap(),
+                            dest.extension()
+                                .unwrap_or(&OsString::from(""))
+                                .to_str()
+                                .unwrap()
+                        ));
+                    }
                     let copy_success = fs::copy(&p, dest);
 
                     if let Ok(_) = copy_success {
@@ -430,11 +439,8 @@ impl App {
                 AppActions::MoveUpDir => {
                     self.move_up_dir();
                     let index = self.find_name(self.ui.last_name.clone()).unwrap_or(0);
-                    self.ui.scroll_abs(
-                        index,
-                        self.dir_contents.len() as i32,
-                        &self.active_panel,
-                    );
+                    self.ui
+                        .scroll_abs(index, self.dir_contents.len() as i32, &self.active_panel);
                     self.ui.last_name = self
                         .current_dir
                         .file_name()
