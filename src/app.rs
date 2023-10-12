@@ -105,7 +105,9 @@ pub struct App {
     command_buffer: String,
     command_buffer_tmp: String,
     command_history: Vec<String>,
-    command_index: i32,
+    command_history_index: i32,
+    command_completion_index: i32,
+    command_matches: Vec<String>,
 
     show_hidden_files: bool,
 
@@ -151,9 +153,11 @@ impl App {
             command_buffer: String::from(""),
             command_buffer_tmp: String::from(""),
             command_history: Vec::new(),
-            command_index: -1,
+            command_history_index: -1,
+            command_completion_index: -1,
+            command_matches: Vec::new(),
             show_hidden_files: false,
-            selection_start: 1,
+            selection_start: -1,
         }
     }
 
@@ -182,12 +186,6 @@ impl App {
 
     pub fn on_key(&mut self, key: KeyEvent) {
         self.last_key = key;
-        /*
-        if mods.intersects(KeyModifiers::CONTROL) {
-            self.should_quit = true;
-            return;
-        }
-        */
 
         self.key_chord.push(key);
         let mut matched = true;
@@ -204,7 +202,12 @@ impl App {
                 }
             }
             ActiveMode::Command => match key.code {
-                KeyCode::Char(c) => self.command_buffer.push(c),
+                KeyCode::Char(c) => {
+                    self.command_buffer.push(c);
+                    self.command_matches.clear();
+                    self.command_buffer_tmp.clear();
+                    self.command_completion_index = -1;
+                }
                 _ => {}
             },
             ActiveMode::Visual => {
@@ -282,6 +285,8 @@ impl App {
             &self.dir_contents,
             self.active_mode == ActiveMode::Command,
             &self.command_buffer,
+            &self.command_matches,
+            self.command_completion_index,
             &self.active_panel,
             &self.active_mode,
             self.selection_start,
@@ -362,29 +367,38 @@ impl App {
                 let mut dest = dest_dir.join(p.file_name().unwrap());
                 let md = fs::metadata(&p).unwrap();
 
-                while dest.exists() {
-                    dest.set_file_name(format!(
-                        "{} (Copy).{}",
-                        dest.file_stem().unwrap().to_str().unwrap(),
-                        dest.extension()
-                            .unwrap_or(&OsString::from(""))
-                            .to_str()
-                            .unwrap()
-                    ));
-                }
-
                 if md.is_dir() {
-                    let copy_options = CopyOptions::new();
-                    let copy_success = fs_extra::dir::copy(&p, dest, &copy_options);
+                    while dest.exists() {
+                        dest.set_file_name(format!(
+                            "{} (Copy)",
+                            dest.file_stem().unwrap().to_str().unwrap(),
+                        ));
+                    }
+                    let mut copy_options = CopyOptions::new();
+                    copy_options.copy_inside = true;
+                    let copy_success = fs_extra::dir::copy(&p, &dest, &copy_options);
 
-                    if let Ok(_) = copy_success {
-                        if let Some(ym) = self.yank_mode {
-                            if ym == YankMode::Cutting {
-                                fs::remove_dir_all(&p).unwrap();
+                    match copy_success {
+                        Ok(_) => {
+                            if let Some(ym) = self.yank_mode {
+                                if ym == YankMode::Cutting {
+                                    fs::remove_dir_all(&p).unwrap();
+                                }
                             }
                         }
+                        Err(_) => {}
                     }
                 } else if md.is_file() {
+                    while dest.exists() {
+                        dest.set_file_name(format!(
+                            "{} (Copy).{}",
+                            dest.file_stem().unwrap().to_str().unwrap(),
+                            dest.extension()
+                                .unwrap_or(&OsString::from(""))
+                                .to_str()
+                                .unwrap()
+                        ));
+                    }
                     let copy_success = fs::copy(&p, dest);
 
                     if let Ok(_) = copy_success {
@@ -429,11 +443,9 @@ impl App {
                 }
                 AppActions::MoveUpDir => {
                     self.move_up_dir();
-                    self.ui.scroll_abs(
-                        self.find_name(self.ui.last_name.clone()).unwrap_or(0),
-                        self.dir_contents.len() as i32,
-                        &self.active_panel,
-                    );
+                    let index = self.find_name(self.ui.last_name.clone()).unwrap_or(0);
+                    self.ui
+                        .scroll_abs(index, self.dir_contents.len() as i32, &self.active_panel);
                     self.ui.last_name = self
                         .current_dir
                         .file_name()
@@ -441,6 +453,7 @@ impl App {
                         .to_str()
                         .unwrap()
                         .to_string();
+                    self.ui.debug_msg = format!("{}", index);
                 }
                 AppActions::EnterDir => {
                     if self.dir_contents[(self.ui.cursor_y + self.ui.scroll_y) as usize]
@@ -563,8 +576,15 @@ impl App {
                 self.active_mode = ActiveMode::Normal;
             }
             ActiveMode::Command => {
-                self.active_mode = ActiveMode::Normal;
-                self.command_buffer.clear();
+                if self.command_completion_index != -1 {
+                    self.command_completion_index = -1;
+                    self.command_matches.clear();
+                    self.command_buffer = self.command_buffer_tmp.clone();
+                    self.command_buffer_tmp.clear();
+                } else {
+                    self.active_mode = ActiveMode::Normal;
+                    self.command_buffer.clear();
+                }
             }
             _ => {}
         }
@@ -575,20 +595,29 @@ impl App {
             ActiveMode::Command => {
                 let words: Vec<&str> = self.command_buffer.split(" ").collect();
 
-                if let Some(cmd) = words.get(0) {
-                    match self.commands.get(*cmd) {
-                        Some(action) => {
-                            let args = words[1..].into_iter().map(|x| String::from(*x)).collect();
-                            /* TODO: This is kind of inconsistent behaviour. Should there be a
-                             * third command_handle_action?
-                             */
-                            self.handle_action(*action, args);
+                if self.command_completion_index != -1 && !self.command_matches.is_empty() {
+                    self.command_buffer =
+                        self.command_matches[self.command_completion_index as usize].clone();
+                    self.command_completion_index = -1;
+                    self.command_matches.clear();
+                    self.command_buffer_tmp.clear();
+                } else {
+                    if let Some(cmd) = words.get(0) {
+                        match self.commands.get(*cmd) {
+                            Some(action) => {
+                                let args =
+                                    words[1..].into_iter().map(|x| String::from(*x)).collect();
+                                /* TODO: This is kind of inconsistent behaviour. Should there be a
+                                 * third command_handle_action?
+                                 */
+                                self.handle_action(*action, args);
+                            }
+                            None => (),
                         }
-                        None => (),
-                    }
 
-                    self.command_history.push(self.command_buffer.clone());
-                    self.on_esc();
+                        self.command_history.push(self.command_buffer.clone());
+                        self.on_esc();
+                    }
                 }
             }
             _ => {}
@@ -609,14 +638,18 @@ impl App {
     pub(crate) fn on_down(&mut self) {
         match self.active_mode {
             ActiveMode::Command => {
-                if self.command_index > 0 {
-                    self.command_index = self.command_index - 1;
-                    self.command_buffer = self.command_history
-                        [(self.command_history.len() as i32 - self.command_index - 1) as usize]
-                        .clone();
-                } else if self.command_index == 0 {
-                    self.command_index = -1;
-                    self.command_buffer = self.command_buffer_tmp.clone();
+                if self.command_completion_index == -1 {
+                    if self.command_history_index > 0 {
+                        self.command_history_index = self.command_history_index - 1;
+                        self.command_buffer =
+                            self.command_history[(self.command_history.len() as i32
+                                - self.command_history_index
+                                - 1) as usize]
+                                .clone();
+                    } else if self.command_history_index == 0 {
+                        self.command_history_index = -1;
+                        self.command_buffer = self.command_buffer_tmp.clone();
+                    }
                 }
             }
             _ => {}
@@ -626,18 +659,77 @@ impl App {
     pub(crate) fn on_up(&mut self) {
         match self.active_mode {
             ActiveMode::Command => {
-                if self.command_index + 1 < self.command_history.len() as i32 {
-                    if self.command_index == -1 {
-                        self.command_buffer_tmp = self.command_buffer.clone();
-                    }
-                    self.command_index = self.command_index + 1;
+                if self.command_completion_index == -1 {
+                    if self.command_history_index + 1 < self.command_history.len() as i32 {
+                        if self.command_history_index == -1 {
+                            self.command_buffer_tmp = self.command_buffer.clone();
+                        }
+                        self.command_history_index = self.command_history_index + 1;
 
-                    self.command_buffer = self.command_history
-                        [(self.command_history.len() as i32 - self.command_index - 1) as usize]
-                        .clone();
+                        self.command_buffer =
+                            self.command_history[(self.command_history.len() as i32
+                                - self.command_history_index
+                                - 1) as usize]
+                                .clone();
+                    }
                 }
             }
             _ => {}
+        }
+    }
+
+    pub(crate) fn on_shift_tab(&mut self) {
+        match self.active_mode {
+            ActiveMode::Command => {
+                if self.command_completion_index == -1 {
+                    self.command_buffer_tmp = self.command_buffer.clone();
+                    self.command_matches = matching_strings(
+                        &self.command_buffer,
+                        &self.commands.keys().cloned().collect::<Vec<String>>(),
+                    );
+                    self.command_matches.sort();
+                }
+                self.scroll_completion(-1);
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn on_tab(&mut self) {
+        match self.active_mode {
+            ActiveMode::Command => {
+                if self.command_completion_index == -1 {
+                    self.command_buffer_tmp = self.command_buffer.clone();
+                    self.command_matches = matching_strings(
+                        &self.command_buffer,
+                        &self.commands.keys().cloned().collect::<Vec<String>>(),
+                    );
+                    self.command_matches.sort();
+                }
+                self.scroll_completion(1);
+            }
+            _ => {}
+        }
+    }
+
+    fn scroll_completion(&mut self, amount: i32) {
+        assert!(amount.abs() <= 1);
+        self.command_completion_index += amount;
+
+        if self.command_completion_index == self.command_matches.len() as i32 {
+            self.command_completion_index = -1;
+            self.command_buffer = self.command_buffer_tmp.clone();
+            self.command_buffer_tmp.clear();
+        } else if self.command_completion_index < -1 {
+            self.command_completion_index = self.command_matches.len() as i32 - 1;
+            self.command_buffer =
+                self.command_matches[self.command_completion_index as usize].clone();
+        } else if self.command_completion_index == -1 {
+            self.command_buffer = self.command_buffer_tmp.clone();
+            self.command_buffer_tmp.clear();
+        } else {
+            self.command_buffer =
+                self.command_matches[self.command_completion_index as usize].clone();
         }
     }
 
@@ -827,6 +919,18 @@ fn read_config(
     }
 
     return Ok((normal_output, visual_output));
+}
+
+fn matching_strings(prefix: &str, strings: &[String]) -> Vec<String> {
+    let mut output = vec![];
+
+    for s in strings {
+        if s.starts_with(prefix) {
+            output.push(s.clone());
+        }
+    }
+
+    return output;
 }
 
 #[cfg(test)]

@@ -60,6 +60,8 @@ impl Ui {
         dir_contents: &Vec<DirEntry>,
         command_mode: bool,
         command_buffer: &str,
+        command_completions: &Vec<String>,
+        command_completion_index: i32,
         active_panel: &ActivePanel,
         active_mode: &ActiveMode,
         selection_start: i32,
@@ -145,10 +147,26 @@ impl Ui {
             let item_list = List::new(items);
 
             // Command mode
-            let cmd_text = Span::styled(format!(":{}", command_buffer), Style::default());
+            let cmd_text = Span::styled(format!(":{}█", command_buffer), Style::default());
             let cmd_line = Paragraph::new(cmd_text)
                 .block(Block::default())
                 .wrap(Wrap { trim: true });
+            let mut cmd_comp_disp = vec![];
+            let mut longest_cmd = 0;
+            for (i, cmd) in command_completions.iter().enumerate() {
+                let mut s = Style::default();
+                if i as i32 == command_completion_index {
+                    s = s.bg(Color::Blue).add_modifier(Modifier::BOLD);
+                } else {
+                    s = s.bg(Color::DarkGray).add_modifier(Modifier::BOLD);
+                }
+                cmd_comp_disp.push(ListItem::new(cmd.clone()).style(s));
+
+                if cmd.len() > longest_cmd {
+                    longest_cmd = cmd.len();
+                }
+            }
+            let cmd_comp_list = List::new(cmd_comp_disp.clone());
 
             let inner_main_block = main_block.inner(chunks[1]);
             f.render_widget(block, size);
@@ -178,6 +196,17 @@ impl Ui {
                         height: 1,
                     },
                 );
+                if command_completions.len() > 0 {
+                    f.render_widget(
+                        cmd_comp_list,
+                        Rect {
+                            x: 10,
+                            y: size.height - 2 - (cmd_comp_disp.len() as u16),
+                            width: longest_cmd as u16,
+                            height: cmd_comp_disp.len() as u16,
+                        },
+                    )
+                }
             }
 
             let mode_style = Style::default()
@@ -234,9 +263,9 @@ impl Ui {
                         self.scroll_y = 0;
                     }
                 } else if self.cursor_y >= self.inside.height as i32 {
+                    let diff = self.scroll_y + self.cursor_y - self.inside.height as i32 + 1;
                     self.cursor_y = self.inside.height as i32 - 1;
-                    self.scroll_y =
-                        std::cmp::min(self.scroll_y + y, max - self.inside.height as i32);
+                    self.scroll_y = std::cmp::min(diff, max - self.inside.height as i32);
                 }
             }
             ActivePanel::Bookmarks => {
