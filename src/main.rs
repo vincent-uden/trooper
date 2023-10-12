@@ -10,7 +10,7 @@ use std::{
 use app::App;
 use clap::Parser;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, Event},
+    event::{DisableMouseCapture, EnableMouseCapture, Event, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -96,6 +96,7 @@ fn run_app<B: Backend>(
 
         if crossterm::event::poll(timeout)? {
             if let Event::Key(key) = crossterm::event::read()? {
+                log::info!("Key pressed: {:?} {:?}", key.code, key.modifiers.bits());
                 match key.code {
                     crossterm::event::KeyCode::Char(_) => {
                         app.on_key(key);
@@ -119,6 +120,23 @@ fn run_app<B: Backend>(
                     }
                     crossterm::event::KeyCode::Down => {
                         app.on_down();
+                    }
+                    crossterm::event::KeyCode::Tab => {
+                        log::info!(
+                            "Tab key pressed: {:?} {:?}",
+                            key.modifiers.bits(),
+                            KeyModifiers::SHIFT
+                        );
+                        if key
+                            .modifiers
+                            .intersects(crossterm::event::KeyModifiers::SHIFT)
+                        {
+                        } else {
+                            app.on_tab();
+                        }
+                    }
+                    crossterm::event::KeyCode::BackTab => {
+                        app.on_shift_tab();
                     }
                     _ => {}
                 }
