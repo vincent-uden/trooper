@@ -1,4 +1,4 @@
-Trooper 0.4.0
+Trooper 0.5.0
 ---
 
 Trooper is a [tui](https://en.wikipedia.org/wiki/Text-based\_user\_interface) file manager with VIM key bindings inspired by the great [ranger](https://github.com/ranger/ranger).
