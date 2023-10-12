@@ -186,12 +186,6 @@ impl App {
 
     pub fn on_key(&mut self, key: KeyEvent) {
         self.last_key = key;
-        /*
-        if mods.intersects(KeyModifiers::CONTROL) {
-            self.should_quit = true;
-            return;
-        }
-        */
 
         self.key_chord.push(key);
         let mut matched = true;
@@ -208,7 +202,12 @@ impl App {
                 }
             }
             ActiveMode::Command => match key.code {
-                KeyCode::Char(c) => self.command_buffer.push(c),
+                KeyCode::Char(c) => {
+                    self.command_buffer.push(c);
+                    self.command_matches.clear();
+                    self.command_buffer_tmp.clear();
+                    self.command_completion_index = -1;
+                }
                 _ => {}
             },
             ActiveMode::Visual => {
